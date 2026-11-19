@@ -69,6 +69,10 @@ private func serve(host: String, port: Int, accounts: AccountStore?, teams: Refe
 
 private enum ServiceError: Error { case missingAddress }
 
+if CommandLine.arguments.dropFirst().first == "diagnostics" {
+    exit(DiagnosticsCommand.run(CommandLine.arguments.dropFirst(2)))
+}
+
 var host = "127.0.0.1"
 var port = 8743
 var database: String?
