@@ -46,6 +46,12 @@ struct WorkspaceDetailView: View {
                 }
                 if !accessLost {
                     workspaceInfo
+                    NavigationLink("Assistants") {
+                        WorkspaceAssistantsView(
+                            api: WorkspaceAssistantClient(workspace: api), workspaceID: workspace.id,
+                            canManage: canManage, canSend: canPost
+                        )
+                    }
                     if canManage { membership }
                     if canPost { composer }
                     history
@@ -75,7 +81,10 @@ struct WorkspaceDetailView: View {
                 .font(.headline)
             Text(workspace.id)
                 .foregroundStyle(.secondary)
+                // On Mac, selectable text can recurse while AppKit resolves the custom label.
+                #if os(iOS)
                 .textSelection(.enabled)
+                #endif
                 .accessibilityLabel("Workspace ID \(workspace.id)")
             Button(workspaceIDCopied ? "Workspace ID Copied" : "Copy Workspace ID") {
                 copy(workspace.id)

@@ -144,6 +144,23 @@ struct CoordinatorClientTests {
         #expect(try await api.status(routineID: "demo", taskID: soloFixtureTaskID).state == state)
     }
 
+    @Test func attachesWithExplicitConsentAndReadsAnAssignmentReceipt() async throws {
+        let endpoint = try CoordinatorEndpoint("https://workspace-assistants.example")
+        let workspace = WorkspaceClient(client: client(), endpoint: endpoint,
+                                        credential: .init(clientID: "fixture-client", token: "fixture-bearer"))
+        let api = WorkspaceAssistantClient(workspace: workspace)
+        let binding = try await api.attachWithRoomConsent(routineID: "demo", workspaceID: soloFixtureTaskID)
+        #expect(binding.provider == "grok-bot")
+        let draft = WorkspaceAssistantClient.Draft(assistantID: binding.id, text: "  fixture input\n")
+        let receipt = try await api.send(draft, workspaceID: soloFixtureTaskID)
+        #expect(receipt.id == draft.id)
+        #expect(receipt.state == .queued)
+        let readback = try await api.status(assignmentID: receipt.id, workspaceID: soloFixtureTaskID)
+        #expect(readback.state == .active)
+        #expect(readback.result == nil)
+        try await api.revoke(assistantID: binding.id, workspaceID: soloFixtureTaskID)
+    }
+
     @Test(arguments: [
         ("http-error", CoordinatorError.httpStatus(503)),
         ("invalid", CoordinatorError.unexpectedResponse),
@@ -230,6 +247,35 @@ private final class StatusURLProtocol: URLProtocol, @unchecked Sendable {
             let state = url.host == "solo.example" ? "accepted" : url.host?.split(separator: ".").first.map(String.init) ?? ""
             respond(200, soloSnapshot(state: state), url: url)
             return
+        case "/v1/workspaces/\(soloFixtureTaskID)/assistants"
+            where request.httpMethod == "POST" && authorization == "Bearer fixture-bearer":
+            let consent: NSDictionary = ["routine_id": "demo", "allow_room_assignments": true]
+            if let body = requestBody(), let input = try? JSONSerialization.jsonObject(with: body) as? NSDictionary,
+               input == consent {
+                respond(201, #"{"assistant_id":"\#(soloFixtureTaskID)","provider":"grok-bot","capabilities":["task"],"native_session_observed":false}"#, url: url)
+            } else {
+                respond(400, "{}", url: url)
+            }
+            return
+        case "/v1/workspaces/\(soloFixtureTaskID)/assistants/\(soloFixtureTaskID)/revoke"
+            where request.httpMethod == "POST" && authorization == "Bearer fixture-bearer":
+            respond(requestBody() == Data("{}".utf8) ? 200 : 400, #"{"revoked":true}"#, url: url)
+            return
+        case "/v1/workspaces/\(soloFixtureTaskID)/assignments"
+            where request.httpMethod == "POST" && authorization == "Bearer fixture-bearer":
+            guard let body = requestBody(), let input = try? JSONDecoder().decode([String: String].self, from: body),
+                  Set(input.keys) == ["assignment_id", "assistant_id", "text"],
+                  let id = input["assignment_id"], Workspace.canonicalID(id) == id,
+                  input["assistant_id"] == soloFixtureTaskID, input["text"] == "  fixture input\n" else {
+                respond(400, "{}", url: url)
+                return
+            }
+            respond(202, assignmentSnapshot(id: id, state: "queued"), url: url)
+            return
+        case let path where path.hasPrefix("/v1/workspaces/\(soloFixtureTaskID)/assignments/")
+            && request.httpMethod == "GET" && authorization == "Bearer fixture-bearer":
+            respond(200, assignmentSnapshot(id: url.lastPathComponent, state: "active"), url: url)
+            return
         case "/v1/reference-teams" where request.httpMethod == "GET" && authorization == "Bearer fixture-bearer":
             respond(200, #"{"teams":[{"teamID":"0123456789abcdef0123456789abcdef","mode":"reference","assistants":["lead","peer"],"runState":"running","turnLimit":12,"turnsUsed":0}]}"#, url: url)
             return
@@ -283,6 +329,10 @@ private final class StatusURLProtocol: URLProtocol, @unchecked Sendable {
 
     private func soloSnapshot(state: String) -> String {
         #"{"task_id":"\#(soloFixtureTaskID)","routine_id":"demo","state":"\#(state)","native_result_available":false,"result":null}"#
+    }
+
+    private func assignmentSnapshot(id: String, state: String) -> String {
+        #"{"assignment_id":"\#(id)","assistant_id":"\#(soloFixtureTaskID)","author_id":"fixture-member","text":"  fixture input\n","state":"\#(state)","native_result_available":false,"result":null}"#
     }
 
     private func requestBody() -> Data? {
