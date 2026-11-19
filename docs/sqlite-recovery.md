@@ -111,6 +111,10 @@ Start verification in isolation with external workers disabled. A restored snaps
 
 For cutover, stop and rename the old container (for example, `docker stop tachi && docker rename tachi tachi-previous`), then start the verified image against the recovered volume using the deployment command above and the same HTTPS origin. Retain the old volume. If writes have occurred after cutover, reconcile them before switching back. CI exercises a live backup, authenticates on the restored service, resumes one paused reference task and checks that resending the original ID consumes one turn.
 
+## Verify an upgrade across an interrupted submission
+
+Run the **Linux coordinator upgrade** workflow on a candidate branch to check the packaged binary against the pinned earlier Swift revision. A loopback receiver holds its response after accepting one authenticated fixture POST. The test kills the earlier coordinator, starts the candidate on the same database and owner-only JSON configuration, and retries the same task ID using the existing client. The expected result is one observed POST, an uncertain delivery, and zero provider events. A fresh workspace operation verifies that the paired client can continue using the upgraded service.
+
 ## Legacy Python snapshot utility
 
 With Python 3.11 or later, run the following from the deployed Tachi revision. Supply the actual database path and a new destination in a private directory on a filesystem that supports hard links.

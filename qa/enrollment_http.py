@@ -37,6 +37,34 @@ class EnrollmentHTTPCheck(SoloHTTPCheck):
         return ("--db", self.database, "--solo-enrollment-directory", directory,
                 "--solo-enrollment-human", human, "--solo-enrollment-routine", routine, "--solo-loopback-fixture")
 
+    def test_directory_argument_is_checked_before_path_resolution(self):
+        with routine_listener("/fixture/path", 200) as (url, secret, observed, _):
+            options = list(self.service_options("synthetic-editor", "sample", url, secret))
+            index = options.index("--solo-enrollment-directory") + 1
+            grant = Path(options[index]).resolve()
+            parent = grant.parent
+            sibling = parent / "sibling"
+            sibling.mkdir()
+            # All five spellings point to the populated grant from the child's cwd.
+            spellings = (grant.name, "./" + grant.name, "../" + parent.name + "/" + grant.name,
+                         str(parent) + "/./" + grant.name, str(sibling) + "/../" + grant.name)
+            for spelling in spellings:
+                with self.subTest(path=spelling):
+                    self.assertEqual((parent / spelling).resolve(strict=True), grant)
+                    options[index] = spelling
+                    attempt = subprocess.run([*self.service_command, "--port", "0", *options],
+                                             cwd=parent, capture_output=True, timeout=10)
+                    self.assertNotEqual(attempt.returncode, 0)
+                    self.assertEqual(attempt.stdout, b"")
+                    self.assertEqual(attempt.stderr, b"Invalid solo configuration. Check the database, "
+                                                     b"private routine file and listener settings.\n")
+            options[index] = str(grant)
+            with self.serve(self.service_command, *options, cwd=parent):
+                reader = self.pair("synthetic-editor", "reader", "sessions:read")
+                items = self.request("GET", self.routines, 200, token=reader)["routines"]
+                self.assertEqual([item["routine_id"] for item in items], ["sample"])
+            self.assertFalse(observed())
+
     def test_grant_requires_its_enrolled_human(self):
         with routine_listener("/fixture/owner", 200) as (url, secret, observed, _):
             options = list(self.service_options("synthetic-editor", "owner", url, secret))
