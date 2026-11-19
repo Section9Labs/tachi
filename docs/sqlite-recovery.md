@@ -1,5 +1,43 @@
 # Deploy and recover the Swift coordinator on Linux
 
+## Install the standalone service
+
+On a fresh Ubuntu 24.04 amd64 host, download the `tachi-coordinator-linux-amd64` artifact from the successful **Swift service** workflow for your chosen source commit. Unzip the Actions download to get the tarball. The archive contains the coordinator, the accounts CLI and a systemd unit. Both binaries include the Swift runtime.
+
+```sh
+sudo apt-get update
+sudo apt-get install -y libsqlite3-0 libssl3t64 libcurl4t64 ca-certificates sqlite3
+stage=$(mktemp -d)
+tar xzf tachi-coordinator-linux-amd64.tar.gz -C "$stage"
+sudo useradd --system --user-group --home-dir /var/lib/tachi --no-create-home --shell /usr/sbin/nologin tachi
+sudo install -m 0755 "$stage/tachi-coordinator" "$stage/tachi-accounts" /usr/local/bin/
+sudo install -m 0644 "$stage/tachi-coordinator.service" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now tachi-coordinator.service
+curl --fail http://127.0.0.1:8743/v1/status
+```
+
+systemd creates the private state directory on first start. To pair a person, mint a single-use invitation as the service user, transfer it privately to its recipient within five minutes, then remove the invitation file. Remote devices connect through an HTTPS reverse proxy to the loopback listener.
+
+```sh
+ticket_dir=$(sudo -u tachi mktemp -d /var/lib/tachi/invite.XXXXXXXX)
+sudo -u tachi /usr/local/bin/tachi-accounts invite-client --db /var/lib/tachi/coordinator.sqlite \
+  --human-id example-user --scope sessions:read --scope messages:send --scope teams:manage \
+  --out "$ticket_dir/client.invitation"
+```
+
+Before upgrading, save an online SQLite backup and the installed source revision in protected off-host storage. The following creates a private local snapshot and checks it.
+
+```sh
+backup_dir=$(sudo -u tachi mktemp -d /var/lib/tachi/backup.XXXXXXXX)
+sudo -u tachi sqlite3 -readonly /var/lib/tachi/coordinator.sqlite ".backup '$backup_dir/coordinator.sqlite'"
+sudo -u tachi sqlite3 -readonly "$backup_dir/coordinator.sqlite" 'PRAGMA integrity_check;'
+```
+
+For an upgrade, stop the unit, install both executables and the unit from the new archive, run `systemctl daemon-reload`, then start it. Verify an existing client's workspace through the same HTTPS origin. To rehearse a restore, use a fresh isolated host, install the pinned binaries, and install the checked snapshot as `/var/lib/tachi/coordinator.sqlite` (owner and group `tachi`, mode 0600) in a new mode-0700 state directory before the first service start. Reconcile grants and external submissions before connecting providers.
+
+## Run in Docker
+
 Build the image from the source revision you intend to run. Record the revision with each backup. A named volume preserves client bindings, teams and pending messages when the container is replaced. The service listens on host loopback. To pair a remote Apple device, configure an HTTPS reverse proxy on your host and ensure its logs omit credentials and request bodies.
 
 ```sh

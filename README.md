@@ -6,7 +6,7 @@ Tachi is an independent, MIT-licensed assistant harness for iOS and macOS. It is
 
 From the repository root, run `swift run tachi-coordinator` and request `http://127.0.0.1:8743/v1/status`. The default listener is loopback. Use `--port 0` for an available port or `--host` to set the listen address.
 
-For a standalone Linux service, build and run the container:
+On Ubuntu 24.04 amd64, install the packaged Swift executables as a [systemd service](docs/sqlite-recovery.md#install-the-standalone-service). To run in a container:
 
 ```sh
 docker build -t tachi-service .
