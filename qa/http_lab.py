@@ -61,12 +61,14 @@ class CoordinatorLab(unittest.TestCase):
                                 payload={"invitation": file.read_text().strip()})
         return response["token"]
 
-    def request(self, method, path, status, *, payload=None, token=None):
+    def request(self, method, path, status, *, payload=None, token=None, escape_slashes=False):
         headers = {"Accept": "application/json"}
         body = None
         if payload is not None:
             headers["Content-Type"] = "application/json"
             body = json.dumps(payload).encode()
+            if escape_slashes:
+                body = body.replace(b"/", br"\/")
         if token is not None:
             headers["Authorization"] = "Bearer " + token
         with closing(http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)) as connection:
