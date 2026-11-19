@@ -1,0 +1,4 @@
+module CSoloDigest [system] {
+    header "digest.h"
+    export *
+}

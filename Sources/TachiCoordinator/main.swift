@@ -10,7 +10,7 @@ import TachiAccounts
 import NIOHTTP1
 import NIOPosix
 
-private func serve(host: String, port: Int, accounts: AccountStore?, teams: ReferenceTeams?) throws {
+private func serve(host: String, port: Int, accounts: AccountStore?, teams: ReferenceTeams?, solo: SoloRoutines?) throws {
     let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
     defer { try? group.syncShutdownGracefully() }
     let pool = NIOThreadPool(numberOfThreads: 4)
@@ -20,7 +20,7 @@ private func serve(host: String, port: Int, accounts: AccountStore?, teams: Refe
         .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
         .childChannelInitializer { channel in
             channel.pipeline.configureHTTPServerPipeline().flatMapThrowing {
-                try channel.pipeline.syncOperations.addHandler(CoordinatorHandler(accounts: accounts, pool: pool, teams: teams))
+                try channel.pipeline.syncOperations.addHandler(CoordinatorHandler(accounts: accounts, pool: pool, teams: teams, solo: solo))
             }
         }
         .bind(host: host, port: port).wait()
@@ -36,11 +36,14 @@ private func serve(host: String, port: Int, accounts: AccountStore?, teams: Refe
         return source
     }
     defer { for source in signals { source.cancel() } }
-    let worker = teams.map { teams in
+    var workers: [@Sendable () async throws -> Void] = []
+    if let teams { workers.append { try await teams.runWorker() } }
+    if let solo { workers.append { try await solo.runWorker() } }
+    let running = workers.map { run in
         let stopped = channel.eventLoop.makePromise(of: Void.self)
         let task = Task {
             do {
-                try await teams.runWorker()
+                try await run()
                 stopped.succeed(())
             } catch is CancellationError {
                 stopped.succeed(())
@@ -55,8 +58,8 @@ private func serve(host: String, port: Int, accounts: AccountStore?, teams: Refe
     let announcement = "Tachi listening on http://\(displayHost):\(port)\n"
     _ = announcement.withCString { write(STDOUT_FILENO, $0, announcement.utf8.count) }
     let closed = Result { try channel.closeFuture.wait() }
-    if let (task, stopped) = worker {
-        task.cancel()
+    for (task, _) in running { task.cancel() }
+    for (_, stopped) in running {
         try stopped.wait()
     }
     try closed.get()
@@ -68,13 +71,21 @@ var host = "127.0.0.1"
 var port = 8743
 var database: String?
 var enableReferenceTeams = false
+var soloFile: String?
+var soloFixture = false
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
 while let option = arguments.next() {
+    if option == "--solo-loopback-fixture" {
+        soloFixture = true
+        continue
+    }
     if option == "--reference-teams" {
         enableReferenceTeams = true
         continue
     }
     switch (option, arguments.next()) {
+    case ("--solo-routines-file", let value?) where !value.isEmpty:
+        soloFile = value
     case ("--db", let value?) where !value.isEmpty:
         database = value
     case ("--host", let value?) where !value.isEmpty:
@@ -82,7 +93,7 @@ while let option = arguments.next() {
     case ("--port", let value?) where UInt16(value) != nil:
         port = Int(UInt16(value)!)
     default:
-        let usage = "Usage: tachi-coordinator [--db PATH] [--reference-teams] [--host ADDRESS] [--port 0...65535]\n"
+        let usage = "Usage: tachi-coordinator [--db PATH] [--reference-teams] [--solo-routines-file PATH] [--solo-loopback-fixture] [--host ADDRESS] [--port 0...65535]\n"
         _ = usage.withCString { write(STDERR_FILENO, $0, usage.utf8.count) }
         exit(EXIT_FAILURE)
     }
@@ -99,4 +110,20 @@ if enableReferenceTeams {
 } else {
     teams = nil
 }
-try serve(host: host, port: port, accounts: accounts, teams: teams)
+let solo: SoloRoutines?
+do {
+    if soloFixture && (soloFile == nil || !["127.0.0.1", "::1"].contains(host)) {
+        throw SoloConfigurationError.invalidConfiguration
+    }
+    if let soloFile {
+        guard let database, let accounts else { throw SoloConfigurationError.invalidConfiguration }
+        solo = try await SoloRoutines(path: database, accounts: accounts, config: soloFile, fixture: soloFixture)
+    } else {
+        solo = nil
+    }
+} catch {
+    let message = "Invalid solo configuration. Check the database, private routine file and listener settings.\n"
+    _ = message.withCString { write(STDERR_FILENO, $0, message.utf8.count) }
+    exit(EXIT_FAILURE)
+}
+try serve(host: host, port: port, accounts: accounts, teams: teams, solo: solo)
