@@ -56,7 +56,7 @@ public struct WebhookCall: Sendable, CustomStringConvertible, CustomDebugStringC
         self.body = body
     }
 
-    public var description: String { "WebhookCall(method: \(method), url: \(url))" }
+    public var description: String { "WebhookCall(method: \(method))" }
     public var debugDescription: String { description }
 }
 
@@ -64,7 +64,7 @@ public typealias WebhookTransport = @Sendable (WebhookCall, TimeInterval) async 
 
 /// Secret frozen to one provider-issued origin and path.
 ///
-/// `triggerRoutine` accepts this grant and no URL. Description and debug text omit the secret.
+/// `triggerRoutine` accepts this grant and no URL. Description and debug text omit the secret and the path.
 public struct WebhookGrant: Sendable, Equatable, CustomStringConvertible, CustomDebugStringConvertible {
     public let scheme: String
     public let host: String
@@ -85,7 +85,7 @@ public struct WebhookGrant: Sendable, Equatable, CustomStringConvertible, Custom
     }
 
     public var description: String {
-        "WebhookGrant(scheme: \(scheme), host: \(host), port: \(port), path: \(path))"
+        "WebhookGrant(scheme: \(scheme), host: \(host), port: \(port))"
     }
 
     public var debugDescription: String { description }

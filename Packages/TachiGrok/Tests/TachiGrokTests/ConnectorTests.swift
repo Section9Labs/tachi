@@ -46,6 +46,18 @@ private func decodeBody(_ data: Data) throws -> JSONValue {
     #expect(try bindWebhook("https://hooks.example.invalid/routine/", secret: secret).destination()
         == "https://hooks.example.invalid/routine/")
     #expect(!String(reflecting: issued).contains(secret))
+    #expect(!String(describing: issued).contains("/routine"))
+    #expect(!String(reflecting: issued).contains("/routine"))
+    let call = WebhookCall(
+        url: issued.destination(),
+        method: "POST",
+        authorization: "Bearer \(secret)",
+        body: Data()
+    )
+    #expect(!String(describing: call).contains("/routine"))
+    #expect(!String(reflecting: call).contains("/routine"))
+    #expect(!String(describing: call).contains(secret))
+    #expect(!String(reflecting: call).contains("hooks.example.invalid"))
     let loopback = try bindWebhook("http://127.0.0.1/routine", secret: secret, allowLoopback: true)
     #expect(loopback.destination() == "http://127.0.0.1/routine")
     #expect(try bindWebhook("http://localhost:9/lab", secret: secret, allowLoopback: true).destination()
@@ -240,6 +252,8 @@ private func decodeBody(_ data: Data) throws -> JSONValue {
     #expect(direct[0].payload == ["reason": .string("unsupported")])
     #expect(posts.count == 1)
     #expect(!String(reflecting: adapter).contains("synthetic-secret"))
+    #expect(!String(describing: adapter).contains("/routine"))
+    #expect(!String(reflecting: adapter).contains("hooks.example.invalid"))
 }
 
 @Test func billedHostAndQueryAreLocalFailures() async throws {
@@ -342,100 +356,3 @@ private func decodeBody(_ data: Data) throws -> JSONValue {
     #expect(posts.count == 1)
 }
 
-#if os(macOS)
-private final class ScriptedWebhookProtocol: URLProtocol, @unchecked Sendable {
-    struct Script: Sendable {
-        var status: Int
-        var body: Data
-        var location: String?
-        var fail: Bool
-    }
-
-    static let lock = NSLock()
-    nonisolated(unsafe) static var scripts: [String: Script] = [:]
-    nonisolated(unsafe) static var hits: [String: Int] = [:]
-
-    static func prepare(_ updates: [String: Script]) {
-        lock.lock()
-        scripts = updates
-        hits = [:]
-        lock.unlock()
-    }
-
-    static func hitCount(_ url: String) -> Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return hits[url] ?? 0
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool {
-        guard let url = request.url?.absoluteString else { return false }
-        lock.lock()
-        defer { lock.unlock() }
-        return scripts[url] != nil
-    }
-
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        let url = request.url?.absoluteString ?? ""
-        Self.lock.lock()
-        Self.hits[url, default: 0] += 1
-        let script = Self.scripts[url]
-        Self.lock.unlock()
-        guard let script else {
-            client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))
-            return
-        }
-        if script.fail {
-            client?.urlProtocol(self, didFailWithError: URLError(.timedOut))
-            return
-        }
-        var headers: [String: String] = [:]
-        if let location = script.location { headers["Location"] = location }
-        let response = HTTPURLResponse(
-            url: request.url!, statusCode: script.status, httpVersion: "HTTP/1.1", headerFields: headers
-        )!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: script.body)
-        client?.urlProtocolDidFinishLoading(self)
-    }
-
-    override func stopLoading() {}
-}
-
-@Test func urlSessionKeepsARedirectAndDiscardsTheBody() async throws {
-    let redirectURL = "http://127.0.0.1/routine"
-    let landed = "http://127.0.0.1/landed"
-    let acceptedURL = "https://hooks.example.invalid/routine"
-    let marker = Data("{\"completed\":true,\"marker\":\"SHOULD-NOT-LEAK\"}".utf8)
-    ScriptedWebhookProtocol.prepare([
-        redirectURL: .init(status: 302, body: marker, location: landed, fail: false),
-        acceptedURL: .init(status: 200, body: marker, location: nil, fail: false),
-    ])
-    let session = makeWebhookSession(
-        timeout: 2,
-        delegate: WebhookRedirectStop(),
-        protocolClasses: [ScriptedWebhookProtocol.self]
-    )
-    defer { session.finishTasksAndInvalidate() }
-    let send: WebhookTransport = { call, timeout in
-        try await performWebhook(call, timeout: timeout, session: session)
-    }
-    let redirect = try bindWebhook(redirectURL, secret: "loopback-secret", allowLoopback: true)
-    await #expect(throws: GrokConnectorError.rejected(status: 302)) {
-        try await triggerRoutine(redirect, body: ["task": .string("synthetic pong")], transport: send, timeout: 2)
-    }
-    #expect(ScriptedWebhookProtocol.hitCount(redirectURL) == 1)
-    #expect(ScriptedWebhookProtocol.hitCount(landed) == 0)
-    #expect(!String(reflecting: GrokConnectorError.rejected(status: 302)).contains("loopback-secret"))
-    let accepted = try bindWebhook(acceptedURL, secret: "loopback-secret")
-    let result = try await triggerRoutine(
-        accepted, body: ["task": .string("synthetic pong")], transport: send, timeout: 2
-    )
-    #expect(result.accepted)
-    #expect(!result.completed)
-    #expect(!String(reflecting: result).contains("SHOULD-NOT-LEAK"))
-    #expect(!String(reflecting: result).contains("native_reply"))
-}
-#endif

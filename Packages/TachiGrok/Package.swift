@@ -9,7 +9,17 @@ let package = Package(
         .package(path: "../TachiRuntime")
     ],
     targets: [
-        .target(name: "TachiGrok", dependencies: ["TachiRuntime"]),
-        .testTarget(name: "TachiGrokTests", dependencies: ["TachiGrok"])
+        .systemLibrary(
+            name: "CCurl",
+            pkgConfig: "libcurl",
+            providers: [.apt(["libcurl4-openssl-dev"])]
+        ),
+        .target(name: "CWebhook", dependencies: ["CCurl"]),
+        .target(name: "TachiGrok", dependencies: ["TachiRuntime", "CWebhook"]),
+        .testTarget(
+            name: "TachiGrokTests",
+            dependencies: ["TachiGrok"],
+            resources: [.copy("Fixtures")]
+        )
     ]
 )
