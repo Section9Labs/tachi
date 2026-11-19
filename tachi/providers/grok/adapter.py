@@ -1,0 +1,94 @@
+"""v1 adapter. Advertises task only when an operator webhook is configured."""
+
+from __future__ import annotations
+
+from tachi.providers.grok.connector import (
+    NotSent,
+    RoutineRejected,
+    SubmissionUnobserved,
+    trigger_routine,
+)
+from tachi.providers.grok.probe import utc_now
+from tachi.providers.grok.product import PRODUCT_ID
+from tachi.providers.grok.quota import QuotaBlocked, QuotaCheckpoint, require_spend_allowed
+from tachi.runtime.contract import (
+    AdapterEvent,
+    AdapterIdentity,
+    Capability,
+    DispatchRequest,
+    DispatchUncertain,
+    EventKind,
+)
+
+
+class GrokBotAdapter:
+    version = 1
+
+    def __init__(
+        self,
+        identity: AdapterIdentity,
+        *,
+        webhook_url: str | None = None,
+        webhook_secret: str | None = None,
+        checkpoint: QuotaCheckpoint | None = None,
+        transport=None,
+        clock=utc_now,
+        allow_loopback: bool = False,
+    ) -> None:
+        if not isinstance(identity, AdapterIdentity) or identity.provider != PRODUCT_ID:
+            raise ValueError("identity provider must be grok-bot")
+        self.identity = identity
+        self._webhook_url = webhook_url
+        self._webhook_secret = webhook_secret
+        self._checkpoint = checkpoint
+        self._transport = transport
+        self._clock = clock
+        self._allow_loopback = allow_loopback
+        configured = bool(webhook_url and webhook_secret)
+        self.capabilities = frozenset({Capability.TASK}) if configured else frozenset()
+
+    def dispatch(self, request: DispatchRequest) -> tuple[AdapterEvent, ...]:
+        if request.capability is not Capability.TASK:
+            return (self._event(request, EventKind.FAILED, {"reason": "unsupported"}),)
+        if not self._webhook_url or not self._webhook_secret:
+            return (self._event(request, EventKind.FAILED, {"reason": "webhook_unconfigured"}),)
+        now = self._clock()
+        try:
+            require_spend_allowed(self._checkpoint, now=now)
+        except QuotaBlocked:
+            return (self._event(request, EventKind.FAILED, {"reason": "quota_checkpoint_required"}),)
+        try:
+            acceptance = trigger_routine(
+                self._webhook_url,
+                self._webhook_secret,
+                request.payload,
+                self._checkpoint,
+                now=now,
+                transport=self._transport,
+                allow_loopback=self._allow_loopback,
+            )
+        except NotSent:
+            return (self._event(request, EventKind.FAILED, {"reason": "not_sent"}),)
+        except RoutineRejected as exc:
+            return (self._event(request, EventKind.FAILED, {"reason": "rejected", "status": exc.status}),)
+        except SubmissionUnobserved as exc:
+            raise DispatchUncertain("routine submission result was not observed") from exc
+        if not acceptance.accepted or acceptance.completed:
+            raise DispatchUncertain("routine acceptance did not match the documented 200 contract")
+        return (
+            self._event(
+                request,
+                EventKind.ACCEPTED,
+                {"accepted": True, "completed": False},
+            ),
+        )
+
+    def _event(self, request: DispatchRequest, kind: EventKind, payload: dict) -> AdapterEvent:
+        return AdapterEvent(
+            self.identity,
+            request.session_id,
+            request.request_id,
+            f"{kind.value}-1",
+            kind,
+            payload,
+        )

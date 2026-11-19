@@ -1,0 +1,26 @@
+{
+  "observed_at": "2026-11-19T02:17:17Z",
+  "provider_id": "grok-bot",
+  "product": "Grok Bot",
+  "docs_reviewed": "2026-11-19",
+  "installed_client": {
+    "present": true,
+    "version": "0.78.1",
+    "bundle_id": "com.anysphere.sand",
+    "url_schemes": [
+      "grokbot",
+      "sand"
+    ]
+  },
+  "release_feed": {
+    "platform": "darwin-arm64",
+    "version": "1.2.3",
+    "commit_sha": "a5927fa2ba82336a29f9343babd28b4c903abbb2"
+  },
+  "client_drift": "installed_behind_feed",
+  "feed_error": null,
+  "quota_checkpoint": null,
+  "live_routine": "not_sent",
+  "advertised_capabilities": [],
+  "access_dependency": "Installed client can be probed, but no subscription quota checkpoint is on file. A native routine run also needs the webhook URL and secret created in that Bot. Those values stay with the operator and are not stored here."
+}
