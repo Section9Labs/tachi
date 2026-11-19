@@ -6,7 +6,8 @@ let package = Package(
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "TachiAccounts", targets: ["TachiAccounts"]),
-        .executable(name: "tachi-accounts", targets: ["AccountsCLI"])
+        .executable(name: "tachi-accounts", targets: ["AccountsCLI"]),
+        .executable(name: "tachi-folder", targets: ["FolderCLI"])
     ],
     targets: [
         .target(name: "CTachiAccounts", linkerSettings: [
@@ -14,6 +15,7 @@ let package = Package(
         ]),
         .target(name: "TachiAccounts", dependencies: ["CTachiAccounts"]),
         .executableTarget(name: "AccountsCLI", dependencies: ["TachiAccounts"]),
+        .executableTarget(name: "FolderCLI", dependencies: ["TachiAccounts"]),
         .testTarget(name: "TachiAccountsTests", dependencies: ["TachiAccounts"])
     ]
 )
