@@ -39,6 +39,12 @@ QA reran all eight `TachiAccounts` tests at `18df590` on the same Mac with the P
 
 QA ran `swift test -Xswiftc -warnings-as-errors` at coordinator revision `4bdfb7c` on arm64 macOS with Swift 6.4.2. The root integration test passed. It queued three deliveries on one SQLite database through the compiled account and host authorization bridge. After the origin client was revoked, its delivery was denied. The same human’s sibling client completed one delivery while the read grant was valid. Revoking that grant blocked the sibling’s remaining delivery. The reference adapter received exactly one call. Swift reference-team HTTP, native provider dispatch and cross-machine host transport remain open. [Shared-database integration test](https://github.com/Section9Labs/tachi/blob/4bdfb7c8fb9bcd4ecb0f4337584d96ba519a1d45/ServiceTests/TachiCoordinatorTests/QueueAuthorityTests.swift)
 
+### Swift reference teams on a Python-created database
+
+At `72a28f7`, QA reran all 15 runtime package tests on arm64 macOS with Swift 6.4.2. The runtime owner reported all 15 also passed on aarch64 Linux with Swift 6.0.3. Both runs treated warnings as errors. [Runtime tests at the qualified revision](https://github.com/Section9Labs/tachi/tree/72a28f781ad26e4b7de50a6a18c0a0ece87ad7c2/Packages/TachiRuntime/Tests/TachiRuntimeTests)
+
+In a separate macOS run, the runtime owner used an external SwiftPM executable with the public `TachiAccounts` and `TachiRuntime` libraries. Swift authenticated two existing clients, reopened a paused reference team in a Python-created SQLite file and retried creation and posting with the original IDs. After one client was revoked, its sibling resumed the run. One delivery was denied and one completed with a synthetic count of two words. Python then reopened the Swift-written file and returned the same delivery rows and result. This qualifies the local library bridge. End-to-end cutover through Swift reference-team HTTP remains open. [Reference-team implementation](https://github.com/Section9Labs/tachi/pull/65)
+
 ## Solo attachment and retrieval
 
 1. On iPhone, use the connector's authorized subscription/SSO flow. Select an existing lab assistant. Record the provider, account and assistant as run-local aliases. Select a synthetic prior conversation if listing is supported. If the provider supports creating conversations, open a fresh one and verify the assistant identity stays the same. Record provisioning a new assistant separately.
