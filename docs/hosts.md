@@ -77,3 +77,46 @@ Client tokens are independent of host credentials. Local bootstrap and revocatio
 | `team_membership(team_id, human_id)` and `team_role(team_id, human_id)` | Trusted recipient lookups return the current membership or role, respectively, or `None`. |
 
 At ingress, capture the originating human, client and membership ID with a pending turn. Before each dispatch, including an assistant handoff, pass that membership ID to `authorize_membership`. Removal immediately denies new checks, and rejoining creates a fresh ID. For human DMs the queue can bind recipient access to the recipient's membership ID as well. Room history, DMs, provider accounts, assistant bindings, and artifacts each require their own resource checks. Device and folder grants remain host-specific. Effects already submitted may require reconciliation.
+
+## Local Mac folder executor
+
+The operator selects one existing directory. Each selection gets a fresh opaque folder ID, tied to the open directory and paired host for the life of that selection. Reconnecting the same host can reuse the selection. Closing it and opening another directory requires the owner to issue new grants.
+
+### Try it with a synthetic coordinator
+
+These commands use a temporary folder on a Mac with Python 3.11 or later. Run them from the checkout.
+
+```sh
+python3 -m tachi.hosts.folder_demo capabilities
+folder=$(mktemp -d)
+folder=$(cd "$folder" && pwd -P)
+printf 'Synthetic brief\n' | python3 -m tachi.hosts.folder_demo write --folder "$folder" brief.txt
+python3 -m tachi.hosts.folder_demo read --folder "$folder" brief.txt
+```
+
+The demo pairs a temporary host, grants exactly the requested action and uses a local SQLite transport stub. Each invocation discards its temporary coordinator state. The file remains in the selected directory. Read emits file bytes on stdout. Write reads bytes from stdin and preserves an existing destination. The physical path from `pwd -P` avoids macOS symlink aliases such as `/var`.
+
+### Runtime contract
+
+```python
+from tachi.hosts.local_folder import FolderExecutor
+from tachi.runtime.queue import HostScope
+
+# In the trusted host process, keep the selection open across operations.
+with FolderExecutor(selected_folder, local_session.host_id, store.authorize) as executor:
+    # The owner grants an action for executor.folder_id using the coordinator.
+    # The adapter receives a coordinator-authored scope after queued dispatch.
+    scope = HostScope(**request.payload["_tachi_host_scope"])
+    result = executor.execute(scope, local_session, body=write_bytes_or_none)
+```
+
+The six fields are `owner_id`, `host_id`, `grant_id`, `folder_id`, `action` and `relative_path`. The session comes from the host connection. Body bytes travel separately in this stub. A read takes no body and returns bytes. A write takes bytes and returns `None`. The authorizer must return `None` on approval and raise on denial or unavailability. The executor checks the grant immediately before publication and again before releasing read bytes. A revocation after publication cannot undo that file creation.
+
+### Filesystem boundary
+
+- The Mac opens the selected directory with `O_DIRECTORY | O_NOFOLLOW_ANY` and retains its descriptor. Paths to the selection containing symlinks fail. If another process renames that directory and replaces the old pathname, operations still target the selected directory object.
+- Only **direct children** are supported. Paths with a slash fail before filesystem access, including when another process moves an intermediate directory. Reads accept only singly linked regular files. The executor checks the opened descriptor and the current entry beneath the root, rejects symlinks and changed identity or change time, and withholds the result on a mismatch. Other processes can still rename files after an operation completes.
+- A write prepares at most 1 MiB in an unlinked temporary file, rechecks authority and publishes the complete file with one root-relative `fclonefileat` call. A pre-existing regular file, hard link, or symlink prevents publication. The executor never opens the destination for subsequent writes. The selected volume must support cloning from the system temporary volume. Unsupported platforms, cross-volume writes and unsupported filesystems fail closed. [Apple clonefile manual](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/man/man2/clonefile.2)
+- The same 1 MiB limit applies to a read. This increment has no directory listing, nested traversal, overwrite or removal operation. Nested access and an authenticated remote transport remain follow-ups under #22.
+
+Run `python3 -W error -m unittest discover -s tests -p 'test_hosts_local_folder.py' -v` on macOS. The mixed-host fixture pairs two synthetic hosts on one Mac and sends separate turns through TeamQueue. While the first host is disconnected, a reference cloud adapter completes and the second host publishes a real file. Reconnecting the first host publishes its queued file once. Revoking its grant blocks the next write. The fixture uses local bytes and makes no live provider or cross-machine connection.
