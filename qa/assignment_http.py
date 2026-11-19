@@ -118,6 +118,37 @@ class AssignmentHTTPCheck(RoutineLab):
     def test_lost_response_holds_lane_across_restart(self):
         self.observe_delivery(None, "uncertain")
 
+    def test_observed_503_remains_failed_after_sibling_retry(self):
+        with routine_listener(self.path, 503) as (url, secret, observed, posted):
+            options = self.service_options(self.grantor, self.alias, url, secret)
+            database = self.database.as_uri() + "?mode=ro"
+            with self.start(options, staged=True):
+                self.prepare()
+                origin = self.request("GET", "/v1/client/me", 200, token=self.member)["clientID"]
+                self.assertEqual(self.request("POST", self.assignments, 202, token=self.member, payload=self.body),
+                                 self.snapshot("queued"))
+            with closing(sqlite3.connect(database, uri=True)) as db:
+                (request_id,) = db.execute("SELECT request FROM rt_delivery").fetchone()
+            self.assertNotEqual(request_id, self.body["assignment_id"])
+
+            with self.start(options):
+                self.assertTrue(posted.wait(15), "Routine did not receive the assignment")
+                self.settle("failed", self.member)
+            with self.start(options):
+                self.assertEqual(self.request("GET", self.detail, 200, token=self.sibling), self.snapshot("failed"))
+                self.assertEqual(self.request("POST", self.assignments, 202, token=self.sibling, payload=self.body),
+                                 self.snapshot("failed"))
+                self.request("POST", self.assignments, 409, token=self.sibling, payload=dict(self.body, text="Changed"))
+
+            self.assertEqual(observed(), [(self.path, True, {"text": self.body["text"]})])
+            with closing(sqlite3.connect(database, uri=True)) as db:
+                deliveries = db.execute("SELECT m.message, m.human, m.client, d.request, d.state "
+                                        "FROM rt_message m JOIN rt_delivery d USING(team, message)").fetchall()
+                events = db.execute("SELECT request, kind, payload FROM rt_event").fetchall()
+            self.assertEqual(deliveries, [(self.body["assignment_id"], self.sender, origin, request_id, "failed")])
+            self.assertEqual([(req, kind, json.loads(payload)) for req, kind, payload in events],
+                             [(request_id, "failed", {"reason": "rejected", "status": 503})])
+
     def queued_denial(self, reason):
         with routine_listener(self.path, 200) as (url, secret, observed, _):
             options = self.service_options(self.grantor, self.alias, url, secret)

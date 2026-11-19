@@ -1,0 +1,41 @@
+name: Linux coordinator upgrade
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/linux-upgrade.yml'
+      - 'qa/linux_upgrade.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build previous and candidate release binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          previous=9c706e1652ebde82884c8fc5a276c9eb16259884
+          baseline=$(mktemp -d)
+          git archive "$previous" | tar -x -C "$baseline"
+          for revision in previous candidate; do
+            context=.
+            if [[ "$revision" == previous ]]; then context="$baseline"; fi
+            docker build -t "tachi-upgrade:$revision" "$context"
+            container=$(docker create "tachi-upgrade:$revision")
+            docker cp "$container:/usr/local/bin/tachi-coordinator" "$RUNNER_TEMP/coordinator-$revision"
+            if [[ "$revision" == previous ]]; then
+              docker cp "$container:/usr/local/bin/tachi-accounts" "$RUNNER_TEMP/accounts-previous"
+            fi
+            docker rm "$container"
+          done
+          echo "Upgrade from $previous to $(git rev-parse HEAD)"
+      - name: Kill during submission and upgrade the same database
+        run: python3 -W error qa/linux_upgrade.py "$RUNNER_TEMP/coordinator-previous" "$RUNNER_TEMP/accounts-previous" "$RUNNER_TEMP/coordinator-candidate"

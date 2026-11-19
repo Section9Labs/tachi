@@ -40,7 +40,7 @@ class CoordinatorLab(unittest.TestCase):
                 self.assertEqual((origin.scheme, origin.hostname), ("http", "127.0.0.1"))
                 self.port = origin.port
                 self.assertIsNotNone(self.port)
-                yield
+                yield server
             finally:
                 server.terminate()
                 try:
