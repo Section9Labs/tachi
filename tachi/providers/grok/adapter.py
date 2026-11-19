@@ -11,7 +11,7 @@ from tachi.providers.grok.connector import (
 from tachi.providers.grok.probe import utc_now
 from tachi.providers.grok.product import PRODUCT_ID
 from tachi.providers.grok.quota import QuotaBlocked, QuotaCheckpoint, require_spend_allowed
-from tachi.runtime.contract import (
+from tachi.runtime import (
     AdapterEvent,
     AdapterIdentity,
     Capability,
@@ -75,11 +75,13 @@ class GrokBotAdapter:
             raise DispatchUncertain("routine submission result was not observed") from exc
         if not acceptance.accepted or acceptance.completed:
             raise DispatchUncertain("routine acceptance did not match the documented 200 contract")
+        # The webhook does not return a Bot conversation id or a terminal result.
+        # session_id stays the caller's opaque id. This process does not POST again.
         return (
             self._event(
                 request,
                 EventKind.ACCEPTED,
-                {"accepted": True, "completed": False},
+                {"accepted": True, "completed": False, "native_session_observed": False},
             ),
         )
 

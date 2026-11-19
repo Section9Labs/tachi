@@ -287,10 +287,18 @@ class AdapterTests(unittest.TestCase):
         )
         registry = AdapterRegistry()
         registry.register(adapter)
-        events = registry.dispatch(self._request(identity))
+        request = self._request(identity)
+        events = registry.dispatch(request)
+        self.assertEqual(registry.capabilities(identity), frozenset({Capability.TASK}))
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].kind, EventKind.ACCEPTED)
-        self.assertEqual(events[0].payload, {"accepted": True, "completed": False})
+        self.assertIs(events[0].identity, identity)
+        self.assertEqual(events[0].session_id, request.session_id)
+        self.assertEqual(events[0].request_id, request.request_id)
+        self.assertEqual(
+            events[0].payload,
+            {"accepted": True, "completed": False, "native_session_observed": False},
+        )
         self.assertNotIn("synthetic-secret", json.dumps(events[0].payload))
         self.assertEqual(seen["body"]["task"], "Reply with the single word pong.")
         with self.assertRaises(UnsupportedCapability):
@@ -334,7 +342,10 @@ class AdapterTests(unittest.TestCase):
     def test_unobserved_submission_stays_uncertain(self) -> None:
         identity = self._identity()
 
+        calls = {"n": 0}
+
         def transport(request, timeout):
+            calls["n"] += 1
             raise SubmissionUnobserved("routine submission result was not observed")
 
         adapter = GrokBotAdapter(
@@ -349,6 +360,7 @@ class AdapterTests(unittest.TestCase):
         registry.register(adapter)
         with self.assertRaises(DispatchUncertain):
             registry.dispatch(self._request(identity))
+        self.assertEqual(calls["n"], 1)
 
 
 class EvidenceTests(unittest.TestCase):

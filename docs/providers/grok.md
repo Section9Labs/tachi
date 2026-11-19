@@ -92,6 +92,17 @@ A native Bot run was not repeated. Two gates are still open:
 
 Until both exist, `trigger_routine` does not send.
 
+## Contract friction
+
+The connector imports the pinned v1 types from `tachi.runtime` and registers through `AdapterRegistry`. These are the points where Grok Bot does not fit that contract. The contract itself is unchanged.
+
+- **`task` is a routine trigger.** The only sanctioned programmatic start is a webhook for a routine the operator already saved. The JSON payload is forwarded as the webhook body. Grok Bot does not treat that payload as a new free-form assignment, and it does not return a result on the HTTP call.
+- **`accepted` is not `completed`.** HTTP 200 becomes one `ACCEPTED` event with `completed: false`. The connector never emits `COMPLETED`. Completion is visible only in the Bot chat, which this connector does not read.
+- **`session_id` is not a Bot conversation id.** Events copy `identity`, `session_id`, and `request_id` from the request and do not replace them. The webhook response has no native conversation id, so the payload sets `native_session_observed` to false. A native id cannot be written into `session_id` without breaking the registry's same-session rule.
+- **The webhook is not idempotent.** An unobserved POST raises `DispatchUncertain` after one attempt. This process does not replay it. A later retry would start a second routine. Reconciliation has no read-back call. The durable queue is a separate layer and is not implemented here.
+- **Authority is the operator webhook plus a subscription quota checkpoint.** The connector does not hold the Cursor or Grok session. `account_id` and `assistant_id` are caller-supplied opaque strings. The product does not offer an API that lists those ids.
+- **Unsupported work stays unadvertised.** `message`, `attachment`, `tools`, `cancel`, and `recover` are absent from `capabilities`. The registry raises `UnsupportedCapability` before `dispatch`. In-app stop, approval, and reopen exist, and there is no v1 operation for them.
+
 ## Gaps
 
 - No sanctioned session or message API. The webhook cannot target an arbitrary turn, attach a file, approve an action, or cancel a run.
