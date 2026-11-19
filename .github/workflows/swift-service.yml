@@ -20,7 +20,12 @@ jobs:
           python3 qa/probe_status.py --port "$port"
           docker cp "$container:/usr/local/bin/tachi-coordinator" tachi-coordinator
           TACHI_TEST_COORDINATOR="$PWD/tachi-coordinator" python3 -W error -m unittest discover -s tests -p 'test_runtime_team_http.py'
-          tar czf tachi-coordinator-linux-amd64.tar.gz tachi-coordinator
+          docker cp "$container:/usr/local/bin/tachi-accounts" tachi-accounts
+          if ! command -v sqlite3 >/dev/null; then sudo apt-get update && sudo apt-get install -y sqlite3; fi
+          python3 -W error qa/linux_restore.py ./tachi-coordinator ./tachi-accounts
+          docker exec "$container" tachi-accounts invite-client --db /var/lib/tachi/smoke.sqlite --human-id smoke --scope sessions:read --out /var/lib/tachi/smoke.invitation
+          docker exec "$container" sqlite3 -readonly /var/lib/tachi/smoke.sqlite 'PRAGMA integrity_check' | grep -Fx ok
+          tar czf tachi-coordinator-linux-amd64.tar.gz tachi-coordinator tachi-accounts
       - uses: actions/upload-artifact@v4
         with:
           name: tachi-coordinator-linux-amd64
