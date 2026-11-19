@@ -54,6 +54,10 @@ class ClientPairingCheck(unittest.TestCase):
             self.assertEqual(response.getheader("Cache-Control"), "no-store")
             return json.loads(response.read())
 
+    def test_bootstrap_probe(self):
+        probe = Path(__file__).with_name("probe_status.py")
+        subprocess.run([sys.executable, probe, "--port", str(self.port)], check=True, timeout=10)
+
     def test_replay_and_selective_revocation(self):
         clients = []
         for label, human, scope in (("first", "synthetic-a", "sessions:read"),
