@@ -6,4 +6,8 @@
 !Packages/
 !Packages/TachiAccounts/
 !Packages/TachiAccounts/**
+!Packages/TachiRuntime/
+!Packages/TachiRuntime/**
+!Tests/
+!Tests/**
 **/.build/
