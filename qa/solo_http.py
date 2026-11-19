@@ -59,14 +59,6 @@ def routine_listener(path, reply_status):
 class SoloHTTPCheck(CoordinatorLab):
     routines = "/v1/solo/routines"
 
-    def pair(self, human, label, *scopes):
-        file = self.directory / label
-        scope_args = [arg for scope in scopes for arg in ("--scope", scope)]
-        self.operator("invite-client", human, *scope_args, "--out", file)
-        response = self.request("POST", "/v1/client/pair", 201,
-                                payload={"invitation": file.read_text().strip()})
-        return response["token"]
-
     def service_options(self, human, routine, url, secret):
         config = self.directory / "routines.json"
         entry = {"human_id": human, "routine_id": routine, "webhook_url": url, "webhook_secret": secret}
