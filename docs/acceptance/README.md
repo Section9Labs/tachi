@@ -29,7 +29,13 @@ QA built Swift coordinator `5b7070e` from a clean archive on arm64 macOS 27.0.1 
 
 The legacy coordinator at `10ee249` created the SQLite database and stopped. Swift reopened the same file. The active bearer resolved to its original human, client ID and scopes. The revoked bearer and spent invitation returned 401. Swift redeemed the outstanding invitation for the second human and revoked the first human’s surviving client. After a Swift restart, both revoked bearers and the spent invitation returned 401, and the second human’s new bearer still resolved correctly. [Legacy producer](https://github.com/Section9Labs/tachi/commit/10ee2490090156d521392401199ce475695ac030)
 
-The earlier Ubuntu amd64 packaged-service run passed the bootstrap HTTP probe at `1e5979b`. Swift reference-team HTTP and durable queue migration require separate qualification. [Packaged Linux bootstrap run](https://github.com/Section9Labs/tachi/actions/runs/44450436010)
+The earlier Ubuntu amd64 packaged-service run passed the bootstrap HTTP probe at `1e5979b`. [Packaged Linux bootstrap run](https://github.com/Section9Labs/tachi/actions/runs/44450436010)
+
+### Swift queue and host policy packages
+
+QA reran all ten `TachiRuntime` tests at `9e89add` on arm64 macOS with Swift 6.4.2 and warnings treated as errors. The Swift queue opened SQLite state restored from a Python-generated SQL fixture. A paused run retained its request IDs and completed, uncertain and queued deliveries. In a separate receipt-only test, reopening the queue preserved the active delivery, held its next turn and rejected a handoff after one synthetic submission. The runtime owner also reported ten passes on arm64 Ubuntu Jammy with Swift 6.0.3 at this revision. In the owner’s separate process-exit test, the worker wrote a synthetic effect marker and exited with status 73. The replacement worker matched the marker’s request ID to an uncertain delivery and made zero further submissions. [Runtime tests and fixture](https://github.com/Section9Labs/tachi/tree/9e89add60c1b7ee13a8639500151b3c39146d9cc/Packages/TachiRuntime/Tests/TachiRuntimeTests)
+
+QA reran all eight `TachiAccounts` tests at `18df590` on the same Mac with the Python writer at `7c34a72`. Swift authorized the existing membership generation and host grant using the current session. Python observed the subsequent Swift revocation. The release `tachi-folder` executable created a synthetic file, returned its exact bytes and refused a second write to the same name, preserving the original contents. The accounts owner reported seven tests passed on arm64 Linux with Swift 6.0.3. Reference-team HTTP backed by the Swift queue, production account and host authorization wiring, native provider work and cross-machine host transport remain open. [Account and host tests](https://github.com/Section9Labs/tachi/tree/18df590b98226bbc1769e9b83cabc4d7e15fad35/Packages/TachiAccounts/Tests/TachiAccountsTests)
 
 ## Solo attachment and retrieval
 
