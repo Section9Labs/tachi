@@ -43,3 +43,21 @@ HTTP transport, account authentication, executor filesystem confinement, end-to-
 - T3 Code documents single-use pairing, persistent device authorization, alternative routes to one machine and explicit device revocation. Tachi adopts the separation between reaching a host and authorizing it. The reference is pinned at `0226239a41e1fd0649fdd2562421d8950db7f39c`, under MIT. [Remote access](https://github.com/pingdotgg/t3code/blob/0226239a41e1fd0649fdd2562421d8950db7f39c/docs/user/remote-access.md) · [License](https://github.com/pingdotgg/t3code/blob/0226239a41e1fd0649fdd2562421d8950db7f39c/LICENSE)
 - Tailscale documents approval before network admission, application grants and device removal. A private route can carry an outbound host connection. Tachi still checks the host's credential and folder grant. Documentation reviewed November 18, 2026. The approval and removal pages show a January 5, 2026 validation date. [Device approval](https://tailscale.com/docs/features/access-control/device-management/device-approval) · [Grants](https://tailscale.com/docs/features/access-control/grants) · [Remove a device](https://tailscale.com/docs/features/access-control/device-management/how-to/remove)
 - The public Tailscale client repository identifies its license as BSD-3-Clause at revision `c4d689ce42ac11ca70a546c6ed8958e88d05a573`. That license identifies the client source. The web documentation above is cited by reference. The Tachi implementation is original MIT code with no vendored upstream material. [Client license](https://github.com/tailscale/tailscale/blob/c4d689ce42ac11ca70a546c6ed8958e88d05a573/LICENSE)
+
+## Human client pairing
+
+On the coordinator, a local operator assigns a stable human ID and chooses the operations allowed on each client. Reuse the exact human ID when pairing another client for that person. Use a new human ID for each account and never recycle one. From a directory private to the operator, run the following command with the coordinator's database path.
+
+```sh
+python3 -m tachi.hosts invite-client --db coordinator.sqlite --human-id person-a \
+  --scope sessions:read --scope messages:send --out client.invitation
+```
+
+The command creates a new owner-readable file (mode 0600) and writes nothing to stdout or stderr on success. Deliver its contents privately to the intended client and remove the file after redemption. The invitation expires after five minutes. Only the local operator may call `AccountStore.issue_client_invitation(human_id, scopes)`. The CLI's authority comes from the operating system account with write access to the coordinator database.
+
+- `redeem_client(invitation) -> ClientCredential(client_id, token)` consumes the invitation once and issues a per-client bearer. The client cannot choose its human ID or scopes at redemption.
+- `authenticate(token) -> ClientPrincipal(human_id, client_id, scopes)` resolves the bearer for each request. The client keeps its token in secure storage. A request handler must derive the origin from this principal, exclude authentication headers, cookies and bodies from logs, and store only nonsecret origin IDs with queued work.
+- `authorize_client(human_id, client_id, scope)` rechecks the originating client in SQLite immediately before a trusted worker dispatches an effect. `sessions:read` covers status and history, `messages:send` covers addressed turns, and `teams:manage` covers team and run administration. The worker must also verify the current grants on the specific resource. The registry can do the client recheck without a bearer.
+- `list_clients(human_id)` lists that human's active client IDs. `revoke_client(human_id, client_id)` removes one client. Both methods are operator-only. CLI equivalents are `list-clients --db … --human-id …` and `revoke-client --db … --human-id … --client-id …`. The next authentication and dispatch recheck fail for that client, including on a separate store connection.
+
+Client tokens are independent of host credentials. Local bootstrap and revocation are available through the CLI. The lead owns HTTP redemption, bearer handling and resource enforcement at the coordinator entry points.
