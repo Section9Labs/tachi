@@ -8,7 +8,7 @@ The iPhone may be suspended, every Mac may be offline, and a provider may contin
 
 A phone-only relay loses its opportunity to deliver when the OS suspends the app. A Mac-only execution hub makes a personal computer a dependency for cloud work. A managed queue and separate database service support multiple workers, but introduce two additional systems to deploy and restore before we have evidence of that need.
 
-Use a single portable Python 3.11+ process and SQLite for the first deployment. Python's standard library covers HTTP clients, JSON, transactional storage and deterministic tests on macOS and Linux. Provider SDKs can be optional adapter dependencies. SQLite transactions offer a recoverable outbox and a single-node backup boundary. Cross-node scheduling would require a later storage decision. The bootstrap HTTP listener binds to loopback. Network deployments require authenticated user routes and a TLS endpoint.
+Deploy one standalone Swift executable on Linux using SwiftNIO for HTTP and SQLite for durable state. The Apple clients communicate over versioned HTTP, so deployment and release of the service are independent of either app. Rust is also viable for a Linux daemon. Swift lets the Apple and service teams maintain typed contracts and review concurrency in one language. The Python bootstrap provides compatibility fixtures for the migration. Linux CI must exercise the release binary in its runtime image before distribution. SQLite transactions offer a recoverable outbox and a single-node backup boundary. Cross-node scheduling would require a later storage decision. The bootstrap HTTP listener binds to loopback. Network deployments require authenticated user routes and a TLS endpoint.
 
 ## Ownership and routing
 
