@@ -13,7 +13,7 @@ docker build -t tachi-service .
 docker run --rm -p 127.0.0.1:8743:8743 tachi-service
 ```
 
-The image runs the release executable as an unprivileged user on Ubuntu 24.04. Linux CI packages the same executable as a downloadable amd64 archive. The Swift service currently serves the status endpoint. Pairing, team delivery and provider dispatch are being ported under [#55](https://github.com/Section9Labs/tachi/issues/55).
+The image runs the release executable as an unprivileged user on Ubuntu 24.04. Linux CI packages the same executable as a downloadable amd64 archive. The Swift service serves status and client pairing. Team delivery and provider dispatch are being ported under [#55](https://github.com/Section9Labs/tachi/issues/55).
 
 ## Run the compatibility reference
 
@@ -42,9 +42,9 @@ Create a private state directory outside the checkout. Start the coordinator wit
 umask 077
 mkdir -p "$HOME/.local/state/tachi"
 TACHI_DB="$HOME/.local/state/tachi/coordinator.sqlite"
-python3 -m tachi.hosts invite-client --db "$TACHI_DB" --human-id example-user \
+swift run --package-path Packages/TachiAccounts tachi-accounts invite-client --db "$TACHI_DB" --human-id example-user \
   --scope sessions:read --out "$HOME/.local/state/tachi/first.invitation"
-python3 -m tachi --db "$TACHI_DB"
+swift run tachi-coordinator --db "$TACHI_DB"
 ```
 
-The operator delivers the invitation privately to the intended person. Within five minutes the client sends `POST /v1/client/pair` with a JSON object containing the `invitation` string. A successful redemption returns HTTP 201 and the new `clientID` and `token`. Store the token in the client's credential store for that coordinator. `GET /v1/client/me` with bearer authorization returns the bound human, client and scopes. Remote clients require an HTTPS endpoint and a proxy that keeps credentials and request bodies out of logs. Revoking a client through `python3 -m tachi.hosts revoke-client` invalidates its bearer on the next request.
+The operator delivers the invitation privately to the intended person. Within five minutes the client sends `POST /v1/client/pair` with a JSON object containing the `invitation` string. A successful redemption returns HTTP 201 and the new `clientID` and `token`. Store the token in the client's credential store for that coordinator. `GET /v1/client/me` with bearer authorization returns the bound human, client and scopes. Remote clients require an HTTPS endpoint and a proxy that keeps credentials and request bodies out of logs. Revoking a client through `tachi-accounts revoke-client` invalidates its bearer on the next request.

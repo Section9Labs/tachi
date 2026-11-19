@@ -3,3 +3,7 @@
 !Package.resolved
 !Sources/
 !Sources/**
+!Packages/
+!Packages/TachiAccounts/
+!Packages/TachiAccounts/**
+**/.build/
