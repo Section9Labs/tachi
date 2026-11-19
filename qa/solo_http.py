@@ -14,7 +14,7 @@ from http_lab import CoordinatorLab
 
 
 @contextmanager
-def routine_listener(path, reply_status):
+def routine_listener(path, reply_status, *, hold_reply=None):
     """Observe each POST before sending headers or dropping the connection."""
     secret = secrets.token_urlsafe(32)
     observations = []
@@ -35,6 +35,8 @@ def routine_listener(path, reply_status):
             with lock:
                 observations.append((self.path, authorized, body))
                 posted.set()
+            if hold_reply is not None:
+                hold_reply.wait(timeout=30)
             if reply_status is None:
                 self.close_connection = True
                 return

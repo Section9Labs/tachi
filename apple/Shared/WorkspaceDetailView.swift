@@ -90,6 +90,13 @@ struct WorkspaceDetailView: View {
                 copy(workspace.id)
                 workspaceIDCopied = true
             }
+            NavigationLink("Artifacts") {
+                WorkspaceArtifactsView(
+                    api: WorkspaceArtifactClient(workspace: api),
+                    workspaceID: workspace.id,
+                    canUpload: canPost
+                )
+            }
         }
     }
 
