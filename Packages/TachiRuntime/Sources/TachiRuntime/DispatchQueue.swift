@@ -16,6 +16,7 @@ extension TeamQueue {
                 JOIN rt_run r ON r.team=m.team AND r.run=m.run
                 WHERE d.state='queued' AND d.host IS ? AND (? IS NULL OR d.team=?)
                 \(referenceFilter)
+                AND (d.host IS NULL OR a.provider<>'tachi-folder')
                 AND r.state='running' AND r.turns<r.turn_limit AND NOT EXISTS (
                     SELECT 1 FROM rt_delivery prev WHERE prev.team=d.team AND prev.target=d.target
                     AND prev.seq<d.seq AND prev.state IN ('queued','uncertain','active','blocked')
@@ -89,7 +90,7 @@ extension TeamQueue {
         try db.transaction { try recordEvent(event) }
     }
 
-    private func recordEvent(_ event: AdapterEvent) throws {
+    func recordEvent(_ event: AdapterEvent) throws {
         guard let row = try db.query("""
             SELECT d.state,a.provider,a.account,a.assistant,a.session FROM rt_delivery d
             JOIN rt_assistant a ON a.team=d.team AND a.member=d.target WHERE d.request=?

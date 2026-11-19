@@ -1,4 +1,5 @@
 import Foundation
+import CTachiAccounts
 
 public struct HostCredential: Sendable, CustomStringConvertible, CustomDebugStringConvertible {
     public let hostID: String
@@ -87,6 +88,19 @@ public struct HostStore: Sendable {
                       .text(credential.hostID), try digest(credential.secret)]))
         }
         return session
+    }
+
+    /// Validate presence without renewing it. The returned non-bearer generation
+    /// binds a handout to this connection; it cannot be used as a SQLite verifier.
+    public func leaseID(session: HostSession) throws -> String {
+        let key = try digest(session.secret)
+        guard let row = try Database(path).rows("""
+            SELECT lease_until FROM host_devices WHERE host_id=? AND session_digest=?
+            """, [.text(session.hostID), key]).first, case .number(let until) = row[0],
+              until > clock(), case .blob(let bytes) = key else { throw AccountsError.denied }
+        var tag = [UInt8](repeating: 0, count: 32)
+        guard tachi_sha256(bytes, bytes.count, &tag) != 0 else { throw AccountsError.invalidRecord }
+        return Data(tag).base64EncodedString()
     }
 
     public func heartbeat(session: HostSession) throws {
