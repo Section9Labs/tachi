@@ -6,7 +6,7 @@ COPY Packages/TachiRuntime ./Packages/TachiRuntime
 COPY Package.swift Package.resolved ./
 RUN swift package resolve --force-resolved-versions
 COPY Sources ./Sources
-COPY Tests ./Tests
+COPY ServiceTests ./ServiceTests
 RUN swift build -c release --static-swift-stdlib --product tachi-coordinator \
     && install "$(swift build -c release --show-bin-path)/tachi-coordinator" /tachi-coordinator
 
