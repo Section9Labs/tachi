@@ -3,10 +3,33 @@ import Foundation
 struct SoloRoutine: Decodable, Identifiable, Sendable {
     let id: String
     let provider: String
+    let originText: String?
 
     enum CodingKeys: String, CodingKey {
         case id = "routine_id"
-        case provider
+        case provider, origin
+    }
+
+    private struct Origin: Decodable {
+        let scheme: String
+        let host: String
+        let port: Int
+
+        var displayText: String? {
+            let loopback = host.lowercased() == "localhost" || host == "127.0.0.1"
+            guard scheme == (loopback ? "http" : "https"), (1...65535).contains(port), !host.isEmpty,
+                  host.unicodeScalars.allSatisfy({
+                      CharacterSet.alphanumerics.contains($0) || $0 == "." || $0 == "-" || $0 == "_"
+                  }) else { return nil }
+            return "\(scheme)://\(host):\(port)"
+        }
+    }
+
+    init(from decoder: any Decoder) throws {
+        let fields = try decoder.container(keyedBy: CodingKeys.self)
+        id = try fields.decode(String.self, forKey: .id)
+        provider = try fields.decode(String.self, forKey: .provider)
+        originText = (try? fields.decode(Origin.self, forKey: .origin))?.displayText
     }
 
     static func isValidID(_ id: String) -> Bool {
