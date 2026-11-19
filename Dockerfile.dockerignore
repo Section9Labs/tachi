@@ -8,6 +8,8 @@
 !Packages/TachiAccounts/**
 !Packages/TachiRuntime/
 !Packages/TachiRuntime/**
+!Packages/TachiGrok/
+!Packages/TachiGrok/**
 !ServiceTests/
 !ServiceTests/**
 **/.build/

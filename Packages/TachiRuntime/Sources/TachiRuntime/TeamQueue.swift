@@ -114,7 +114,7 @@ public actor TeamQueue {
         }
     }
 
-    private func insertPost(team: String, principal: QueuePrincipal, generation: String, author: String,
+    func insertPost(team: String, principal: QueuePrincipal, generation: String, author: String,
                             run: String, message: String, payload: JSONObject, directTo: String?, mentions: [String],
                             replyTo: String?, capability: Capability, scope: HostScope?, parent: AdapterEvent?) throws {
         try requireIDs(team, run, message)

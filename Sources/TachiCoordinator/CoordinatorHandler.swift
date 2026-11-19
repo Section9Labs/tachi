@@ -24,6 +24,7 @@ final class CoordinatorHandler: ChannelInboundHandler {
     typealias OutboundOut = HTTPServerResponsePart
 
     private var maximum = 0
+    private let solo: SoloRoutines?
     private let teams: ReferenceTeams?
     private let accounts: AccountStore?
     private let pool: NIOThreadPool
@@ -31,7 +32,8 @@ final class CoordinatorHandler: ChannelInboundHandler {
     private var body = Data()
     private var responding = false
 
-    init(accounts: AccountStore?, pool: NIOThreadPool, teams: ReferenceTeams?) {
+    init(accounts: AccountStore?, pool: NIOThreadPool, teams: ReferenceTeams?, solo: SoloRoutines? = nil) {
+        self.solo = solo
         self.teams = teams
         self.accounts = accounts
         self.pool = pool
@@ -45,7 +47,7 @@ final class CoordinatorHandler: ChannelInboundHandler {
             head = request
             if request.method == .POST && accounts != nil {
                 if request.uri == "/v1/client/pair" { maximum = 2048 }
-                if teams != nil && ReferenceRoute.matches(request.uri) { maximum = 16384 }
+                if SoloRoute.matches(request.uri) || (teams != nil && ReferenceRoute.matches(request.uri)) { maximum = 16384 }
             }
             if maximum == 2048, let error = Self.checkHeaders(request.headers, maximum: maximum) {
                 responding = true
@@ -67,7 +69,9 @@ final class CoordinatorHandler: ChannelInboundHandler {
                 Self.send(Reply(.ok, Data(#"{"service":"tachi","protocolVersion":1,"status":"ready"}"#.utf8)), on: channel)
                 return
             }
-            if let teams, let accounts, ReferenceRoute.matches(head.uri) {
+            let isSolo = SoloRoute.matches(head.uri)
+            if let accounts, isSolo || (teams != nil && ReferenceRoute.matches(head.uri)) {
+                let solo = self.solo, teams = self.teams
                 let payload = body
                 let headerError = head.method == .POST ? Self.checkHeaders(head.headers, maximum: 16384) : nil
                 let principal = pool.runIfActive(eventLoop: channel.eventLoop) {
@@ -76,7 +80,12 @@ final class CoordinatorHandler: ChannelInboundHandler {
                 let loop = channel.eventLoop
                 principal.flatMap { client in
                     loop.makeFutureWithTask {
-                        try await ReferenceRoute.reply(head, body: payload, headerError: headerError,
+                        if isSolo {
+                            return try await SoloRoute.reply(head, body: payload, headerError: headerError,
+                                                             client: client, service: solo)
+                        }
+                        guard let teams else { return Reply(.notFound, error: "not_found") }
+                        return try await ReferenceRoute.reply(head, body: payload, headerError: headerError,
                                                        client: client, service: teams)
                     }
                 }.recover { error in
