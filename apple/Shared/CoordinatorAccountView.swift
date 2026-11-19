@@ -9,7 +9,13 @@ struct CoordinatorAccountView: View {
     @State private var accountLabel = "Default"
     @State private var invitation = ""
     @State private var phase = Phase.unchecked
-    @State private var showsTeams = false
+    @State private var destination: Destination?
+
+    private enum Destination: String, Identifiable {
+        case solo, teams
+
+        var id: Self { self }
+    }
 
     private enum Phase {
         case unchecked
@@ -72,7 +78,9 @@ struct CoordinatorAccountView: View {
                 .accessibilityIdentifier("coordinator-account-status")
 
             if case .paired(let account, _) = phase, account.scopes.contains("sessions:read") {
-                Button("Reference Teams") { showsTeams = true }
+                Button("Solo Assistants") { destination = .solo }
+                    .buttonStyle(.bordered)
+                Button("Reference Teams") { destination = .teams }
                     .buttonStyle(.borderedProminent)
             }
         }
@@ -80,12 +88,20 @@ struct CoordinatorAccountView: View {
             accountLabel = savedLabel
             await checkAccount()
         }
-        .sheet(isPresented: $showsTeams, onDismiss: { Task { await checkAccount() } }) {
+        .sheet(item: $destination, onDismiss: { Task { await checkAccount() } }) { destination in
             if case .paired(let account, let credential) = phase {
-                ReferenceTeamsView(
-                    api: ReferenceTeamClient(client: client, endpoint: endpoint, credential: credential),
-                    account: account
-                )
+                switch destination {
+                case .solo:
+                    SoloRoutinesView(
+                        api: SoloRoutineClient(client: client, endpoint: endpoint, credential: credential),
+                        account: account
+                    )
+                case .teams:
+                    ReferenceTeamsView(
+                        api: ReferenceTeamClient(client: client, endpoint: endpoint, credential: credential),
+                        account: account
+                    )
+                }
             }
         }
     }
