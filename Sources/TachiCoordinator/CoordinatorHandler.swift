@@ -24,6 +24,7 @@ final class CoordinatorHandler: ChannelInboundHandler {
     typealias OutboundOut = HTTPServerResponsePart
 
     private var maximum = 0
+    private let history: WorkspaceHistory?
     private let solo: SoloRoutines?
     private let teams: ReferenceTeams?
     private let accounts: AccountStore?
@@ -32,7 +33,8 @@ final class CoordinatorHandler: ChannelInboundHandler {
     private var body = Data()
     private var responding = false
 
-    init(accounts: AccountStore?, pool: NIOThreadPool, teams: ReferenceTeams?, solo: SoloRoutines? = nil) {
+    init(accounts: AccountStore?, pool: NIOThreadPool, teams: ReferenceTeams?, solo: SoloRoutines? = nil, history: WorkspaceHistory? = nil) {
+        self.history = history
         self.solo = solo
         self.teams = teams
         self.accounts = accounts
@@ -47,7 +49,7 @@ final class CoordinatorHandler: ChannelInboundHandler {
             head = request
             if request.method == .POST && accounts != nil {
                 if request.uri == "/v1/client/pair" { maximum = 2048 }
-                if SoloRoute.matches(request.uri) || (teams != nil && ReferenceRoute.matches(request.uri)) { maximum = 16384 }
+                if WorkspaceRoute.matches(request.uri) || SoloRoute.matches(request.uri) || (teams != nil && ReferenceRoute.matches(request.uri)) { maximum = 16384 }
             }
             if maximum == 2048, let error = Self.checkHeaders(request.headers, maximum: maximum) {
                 responding = true
@@ -70,8 +72,9 @@ final class CoordinatorHandler: ChannelInboundHandler {
                 return
             }
             let isSolo = SoloRoute.matches(head.uri)
-            if let accounts, isSolo || (teams != nil && ReferenceRoute.matches(head.uri)) {
-                let solo = self.solo, teams = self.teams
+            let isWorkspace = WorkspaceRoute.matches(head.uri)
+            if let accounts, isWorkspace || isSolo || (teams != nil && ReferenceRoute.matches(head.uri)) {
+                let solo = self.solo, teams = self.teams, history = self.history
                 let payload = body
                 let headerError = head.method == .POST ? Self.checkHeaders(head.headers, maximum: 16384) : nil
                 let principal = pool.runIfActive(eventLoop: channel.eventLoop) {
@@ -80,6 +83,10 @@ final class CoordinatorHandler: ChannelInboundHandler {
                 let loop = channel.eventLoop
                 principal.flatMap { client in
                     loop.makeFutureWithTask {
+                        if isWorkspace, let history {
+                            return try await WorkspaceRoute.reply(head, body: payload, headerError: headerError, client: client,
+                                                                  accounts: accounts, history: history)
+                        }
                         if isSolo {
                             return try await SoloRoute.reply(head, body: payload, headerError: headerError,
                                                              client: client, service: solo)
