@@ -46,6 +46,12 @@ struct WorkspaceDetailView: View {
                 }
                 if !accessLost {
                     workspaceInfo
+                    NavigationLink("Assistants") {
+                        WorkspaceAssistantsView(
+                            api: WorkspaceAssistantClient(workspace: api), workspaceID: workspace.id,
+                            canManage: canManage, canSend: canPost
+                        )
+                    }
                     if canManage { membership }
                     if canPost { composer }
                     history

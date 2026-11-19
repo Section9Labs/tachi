@@ -38,4 +38,6 @@ If a send fails, its text, audience, reply and stable message ID stay in the loc
 
 From a paired coordinator account, choose **Workspaces**. A client with **Create Workspace** can create a workspace, copy its ID, and create a one-use invitation for an exact human ID under **Membership**. Share the ID and invitation with that person. They can enter both under **Join Workspace** from their own paired account.
 
+Open **Assistants** inside the workspace. Owners with workspace management and send permissions can attach their connected Grok Bot routine and explicitly allow room assignments. Current members with send permission can assign text to it. Assignments and delivery receipts appear in the workspace. Check Grok for the result. Owners can revoke the assistant to stop future dispatch.
+
 Messages go to the room by default. Turn on **Direct message** and enter a human ID to address one member. Workspace owners can revoke a person’s access or withdraw their pending invitations under **Membership**.
