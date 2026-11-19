@@ -7,13 +7,25 @@ private func checkingAccountPolicy<T>(_ body: () throws -> T) throws -> T {
     catch AccountsError.denied { throw QueueError.denied }
 }
 
-struct CoordinatorAuthority: QueueAuthority {
+struct CoordinatorAuthority: ReferenceTeamAuthority {
     let accounts: AccountStore
 
     func authorize(_ principal: QueuePrincipal, team: String, scope: String, membershipID: String?) throws -> String {
         try checkingAccountPolicy {
             try accounts.authorizeMembership(humanID: principal.humanID, clientID: principal.clientID,
                                             teamID: team, scope: scope, membershipID: membershipID).membershipID
+        }
+    }
+
+    func authorizeClient(_ principal: QueuePrincipal, scope: String) throws {
+        try checkingAccountPolicy {
+            try accounts.authorizeClient(humanID: principal.humanID, clientID: principal.clientID, scope: scope)
+        }
+    }
+
+    func createTeam(_ principal: QueuePrincipal, team: String) throws {
+        try checkingAccountPolicy {
+            try accounts.createTeam(humanID: principal.humanID, clientID: principal.clientID, teamID: team)
         }
     }
 
