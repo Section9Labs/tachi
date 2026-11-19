@@ -31,6 +31,16 @@ extension AccountStore {
         }
     }
 
+    /// Read a single snapshot of the paired client's human memberships.
+    public func listTeams(humanID: String, clientID: String) throws -> [(teamID: String, role: String)] {
+        let db = try Database(path)
+        try db.script("BEGIN")
+        defer { try? db.script("ROLLBACK") }
+        guard try clientScopes(db, humanID, clientID).contains("sessions:read") else { throw AccountsError.denied }
+        return try db.rows("SELECT team_id,role FROM account_team_members WHERE human_id=? ORDER BY team_id",
+                           [.text(humanID)]).map { (try $0[0].string(), try $0[1].string()) }
+    }
+
     public func teamMembership(teamID: String, humanID: String) throws -> TeamMembership? {
         try identifier(teamID)
         try identifier(humanID)
@@ -91,6 +101,11 @@ extension AccountStore {
     }
 
     public func acceptInvitation(humanID: String, clientID: String, invitation: String) throws -> TeamMembership {
+        try acceptInvitation(humanID: humanID, clientID: clientID, invitation: invitation, expectedTeamID: nil)
+    }
+
+    public func acceptInvitation(humanID: String, clientID: String, invitation: String,
+                                 expectedTeamID: String?) throws -> TeamMembership {
         let key = try digest(invitation)
         return try Database(path).write { db in
             _ = try clientScopes(db, humanID, clientID)
@@ -98,8 +113,9 @@ extension AccountStore {
             try requireChange(db.run("""
                 INSERT INTO account_team_members (team_id,human_id,membership_id,role)
                 SELECT team_id,recipient_id,?,'member' FROM account_team_invitations
-                WHERE digest=? AND recipient_id=? AND expires_at>?
-                """, [.text(member.membershipID), key, .text(humanID), .number(clock())]))
+                WHERE digest=? AND recipient_id=? AND expires_at>? AND (? IS NULL OR team_id=?)
+                """, [.text(member.membershipID), key, .text(humanID), .number(clock()),
+                      expectedTeamID.map(Value.text) ?? .null, expectedTeamID.map(Value.text) ?? .null]))
             try db.run("DELETE FROM account_team_invitations WHERE digest=?", [key])
             return member
         }

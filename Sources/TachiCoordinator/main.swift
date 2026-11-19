@@ -10,7 +10,8 @@ import TachiAccounts
 import NIOHTTP1
 import NIOPosix
 
-private func serve(host: String, port: Int, accounts: AccountStore?, teams: ReferenceTeams?, solo: SoloRoutines?) throws {
+private func serve(host: String, port: Int, accounts: AccountStore?, teams: ReferenceTeams?, solo: SoloRoutines?,
+                   history: WorkspaceHistory?) throws {
     let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
     defer { try? group.syncShutdownGracefully() }
     let pool = NIOThreadPool(numberOfThreads: 4)
@@ -20,7 +21,7 @@ private func serve(host: String, port: Int, accounts: AccountStore?, teams: Refe
         .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
         .childChannelInitializer { channel in
             channel.pipeline.configureHTTPServerPipeline().flatMapThrowing {
-                try channel.pipeline.syncOperations.addHandler(CoordinatorHandler(accounts: accounts, pool: pool, teams: teams, solo: solo))
+                try channel.pipeline.syncOperations.addHandler(CoordinatorHandler(accounts: accounts, pool: pool, teams: teams, solo: solo, history: history))
             }
         }
         .bind(host: host, port: port).wait()
@@ -126,4 +127,10 @@ do {
     _ = message.withCString { write(STDERR_FILENO, $0, message.utf8.count) }
     exit(EXIT_FAILURE)
 }
-try serve(host: host, port: port, accounts: accounts, teams: teams, solo: solo)
+let history: WorkspaceHistory?
+if let database, let accounts {
+    history = try WorkspaceHistory(path: database, authority: CoordinatorAuthority(accounts: accounts))
+} else {
+    history = nil
+}
+try serve(host: host, port: port, accounts: accounts, teams: teams, solo: solo, history: history)
