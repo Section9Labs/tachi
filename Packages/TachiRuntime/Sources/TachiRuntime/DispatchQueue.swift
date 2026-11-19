@@ -1,14 +1,21 @@
 import Foundation
 
 extension TeamQueue {
-    private func claim(team: String?, host: String?) throws -> Row? {
-        try db.transaction {
+    private func claim(team: String?, host: String?, referenceOnly: Bool) throws -> Row? {
+        // Keep reference workers away from native bindings, even within a shared SQLite database.
+        let referenceFilter = referenceOnly ? """
+            AND m.run='assignment' AND a.provider='tachi-reference' AND a.account=d.team
+            AND a.assistant IN ('lead','peer') AND a.member='assistant:' || a.assistant
+            AND EXISTS (SELECT 1 FROM rt_reference_team t WHERE t.team=d.team AND t.ready=1)
+            """ : ""
+        return try db.transaction {
             guard let row = try db.query("""
                 SELECT d.request,d.target,m.*,a.provider,a.account,a.assistant,a.session
                 FROM rt_delivery d JOIN rt_message m USING(team,message)
                 JOIN rt_assistant a ON a.team=d.team AND a.member=d.target
                 JOIN rt_run r ON r.team=m.team AND r.run=m.run
                 WHERE d.state='queued' AND d.host IS ? AND (? IS NULL OR d.team=?)
+                \(referenceFilter)
                 AND r.state='running' AND r.turns<r.turn_limit AND NOT EXISTS (
                     SELECT 1 FROM rt_delivery prev WHERE prev.team=d.team AND prev.target=d.target
                     AND prev.seq<d.seq AND prev.state IN ('queued','uncertain','active','blocked')
@@ -32,7 +39,11 @@ extension TeamQueue {
     }
 
     public func dispatchOne(registry: AdapterRegistry, teamID: String? = nil, host: HostWorker? = nil) async throws -> String? {
-        guard let row = try claim(team: teamID, host: host?.hostID) else { return nil }
+        try await dispatchOne(registry: registry, teamID: teamID, host: host, referenceOnly: false)
+    }
+
+    func dispatchOne(registry: AdapterRegistry, teamID: String?, host: HostWorker?, referenceOnly: Bool) async throws -> String? {
+        guard let row = try claim(team: teamID, host: host?.hostID, referenceOnly: referenceOnly) else { return nil }
         let identity = try row.nativeIdentity(), requestID = try row.required("request")
         guard let capability = try Capability(rawValue: row.required("capability")) else { throw QueueError.corruptStore }
         let origin = try QueuePrincipal(humanID: row.required("human"), clientID: row.required("client"))

@@ -39,6 +39,8 @@ jobs:
         run: swift test --package-path Packages/TachiAccounts
       - name: Test Grok connector
         run: swift test --package-path Packages/TachiGrok
+      - name: Test coordinator integration
+        run: swift test
       - name: Verify paired HTTP and legacy SQLite migration
         shell: bash
         run: |
