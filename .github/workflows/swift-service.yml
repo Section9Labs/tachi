@@ -1,0 +1,39 @@
+name: Swift service
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  linux-binary:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production Linux executable
+        run: docker build -t tachi-service .
+      - name: Exercise binary in clean Linux runtime
+        shell: bash
+        run: |
+          set -eu
+          container=$(docker run -d -p 127.0.0.1::8743 tachi-service)
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          port=$(docker port "$container" 8743/tcp | cut -d: -f2)
+          curl --retry 10 --retry-connrefused --retry-delay 1 --fail "http://127.0.0.1:$port/v1/status"
+          python3 qa/probe_status.py --port "$port"
+          docker cp "$container:/usr/local/bin/tachi-coordinator" tachi-coordinator
+          tar czf tachi-coordinator-linux-amd64.tar.gz tachi-coordinator
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tachi-coordinator-linux-amd64
+          path: tachi-coordinator-linux-amd64.tar.gz
+  packages:
+    runs-on: ubuntu-24.04
+    container: swift:6.3-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SQLite and OpenSSL development headers
+        run: apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev libssl-dev
+      - name: Test runtime
+        if: hashFiles('Packages/TachiRuntime/Package.swift') != ''
+        run: swift test --package-path Packages/TachiRuntime
+      - name: Test accounts
+        if: hashFiles('Packages/TachiAccounts/Package.swift') != ''
+        run: swift test --package-path Packages/TachiAccounts
