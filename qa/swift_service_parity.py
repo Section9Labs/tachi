@@ -11,6 +11,7 @@ from check_reference_http import ReferenceTeamCheck
 from http_lab import CoordinatorLab, PYTHON_OPERATOR, PYTHON_SERVICE
 from probe_status import check_status
 from solo_http import SoloHTTPCheck
+from workspace_http import WorkspaceHTTPCheck
 
 
 class BootstrapParity(CoordinatorLab):
@@ -68,13 +69,13 @@ class PairingMigration(CoordinatorLab):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("stage", choices=("status", "pairing", "reference-teams", "solo"))
+    parser.add_argument("stage", choices=("status", "pairing", "reference-teams", "solo", "workspaces"))
     parser.add_argument("--service-root", type=Path, default=Path.cwd(), help="candidate checkout")
     parser.add_argument("--legacy-root", type=Path, default=Path.cwd(), help="Python fixture producer checkout")
     parser.add_argument("--python-control", action="store_true", help="use Python for the candidate as well")
     args = parser.parse_args()
-    if args.stage == "solo" and args.python_control:
-        parser.error("The solo routines API requires the Swift coordinator.")
+    if args.stage in ("solo", "workspaces") and args.python_control:
+        parser.error(f"The {args.stage} stage requires the Swift coordinator.")
     root = args.service_root.resolve()
     service, operator = PYTHON_SERVICE, PYTHON_OPERATOR
     if not args.python_control:
@@ -86,11 +87,12 @@ def main():
                            cwd=root, check=True)
             operator = ("swift", "run", "--package-path", package, "--skip-build", "tachi-accounts")
 
-        if args.stage == "solo":
+        if args.stage in ("solo", "workspaces"):
             bin_dir = subprocess.check_output(["swift", "build", "--show-bin-path"], cwd=root, text=True).strip()
             service = (Path(bin_dir) / "tachi-coordinator",)
     checks = {"status": (BootstrapParity,), "pairing": (ClientPairingCheck, PairingMigration),
-              "reference-teams": (ReferenceTeamCheck,), "solo": (SoloHTTPCheck,)}
+              "reference-teams": (ReferenceTeamCheck,), "solo": (SoloHTTPCheck,),
+              "workspaces": (WorkspaceHTTPCheck,)}
     suite = unittest.TestSuite()
     for case in checks[args.stage]:
         for test in unittest.defaultTestLoader.loadTestsFromTestCase(case):
