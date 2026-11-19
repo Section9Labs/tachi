@@ -1,0 +1,26 @@
+{
+  "observed_at": "2026-11-19T02:17:17Z",
+  "provider_id": "grok-bot",
+  "product": "Grok Bot",
+  "docs_reviewed": "2026-11-19",
+  "installed_client": {
+    "present": true,
+    "version": "0.78.1",
+    "bundle_id": "com.anysphere.sand",
+    "url_schemes": [
+      "grokbot",
+      "sand"
+    ]
+  },
+  "release_feed": {
+    "platform": "darwin-arm64",
+    "version": "1.2.3",
+    "commit_sha": "a5927fa2ba82336a29f9343babd28b4c903abbb2"
+  },
+  "client_drift": "installed_behind_feed",
+  "feed_error": null,
+  "quota_checkpoint": null,
+  "live_routine": "not_sent",
+  "advertised_capabilities": [],
+  "access_dependency": "Installed client can be probed. This engineering record did not start a routine. A user who already has an authorized webhook does not also need a quota checkpoint. HTTP 200 means the routine was accepted and is not a Bot reply. The result stays in the Bot chat and in phone Run history, and this connector does not read either."
+}
