@@ -106,7 +106,7 @@ private struct SoloAuthority: QueueAuthority {
 struct SoloRoutines: Sendable {
     private let routines: [Routine]
     private let queue: TeamQueue
-    private let registry: AdapterRegistry
+    let registry: AdapterRegistry
 
     init(path: String, accounts: AccountStore, config: String, fixture: Bool) async throws {
         try await self.init(path: path, accounts: accounts,
@@ -138,6 +138,13 @@ struct SoloRoutines: Sendable {
             try await registry.register(routine.adapter)
         }
         queue = try TeamQueue(path: path, authority: SoloAuthority(accounts: accounts, routines: bindings))
+    }
+
+    func workspaceGrant(human: String, routineID: String) -> WorkspaceRoutineGrant? {
+        guard let routine = routines.first(where: {
+            $0.human.utf8.elementsEqual(human.utf8) && $0.alias.utf8.elementsEqual(routineID.utf8)
+        }) else { return nil }
+        return WorkspaceRoutineGrant(identity: routine.adapter.identity, generation: routine.generation)
     }
 
     func list(_ principal: QueuePrincipal) -> [[String: String]] {

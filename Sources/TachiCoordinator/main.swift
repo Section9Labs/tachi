@@ -11,7 +11,7 @@ import NIOHTTP1
 import NIOPosix
 
 private func serve(host: String, port: Int, accounts: AccountStore?, teams: ReferenceTeams?, solo: SoloRoutines?,
-                   history: WorkspaceHistory?) throws {
+                   history: WorkspaceHistory?, assistants: WorkspaceAssistantService?, runAssignments: Bool) throws {
     let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
     defer { try? group.syncShutdownGracefully() }
     let pool = NIOThreadPool(numberOfThreads: 4)
@@ -21,7 +21,7 @@ private func serve(host: String, port: Int, accounts: AccountStore?, teams: Refe
         .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
         .childChannelInitializer { channel in
             channel.pipeline.configureHTTPServerPipeline().flatMapThrowing {
-                try channel.pipeline.syncOperations.addHandler(CoordinatorHandler(accounts: accounts, pool: pool, teams: teams, solo: solo, history: history))
+                try channel.pipeline.syncOperations.addHandler(CoordinatorHandler(accounts: accounts, pool: pool, teams: teams, solo: solo, history: history, workspaceAssistants: assistants))
             }
         }
         .bind(host: host, port: port).wait()
@@ -39,6 +39,7 @@ private func serve(host: String, port: Int, accounts: AccountStore?, teams: Refe
     defer { for source in signals { source.cancel() } }
     var workers: [@Sendable () async throws -> Void] = []
     if let teams { workers.append { try await teams.runWorker() } }
+    if let assistants, runAssignments { workers.append { try await assistants.runWorker() } }
     if let solo { workers.append { try await solo.runWorker() } }
     let running = workers.map { run in
         let stopped = channel.eventLoop.makePromise(of: Void.self)
@@ -77,8 +78,13 @@ var soloDirectory: String?
 var soloHuman: String?
 var soloRoutine: String?
 var soloFixture = false
+var runAssignments = true
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
 while let option = arguments.next() {
+    if option == "--no-workspace-assignment-worker" {
+        runAssignments = false
+        continue
+    }
     if option == "--solo-loopback-fixture" {
         soloFixture = true
         continue
@@ -103,7 +109,7 @@ while let option = arguments.next() {
     case ("--port", let value?) where UInt16(value) != nil:
         port = Int(UInt16(value)!)
     default:
-        let usage = "Usage: tachi-coordinator [--db PATH] [--reference-teams] [--solo-routines-file PATH] [--solo-enrollment-directory PATH --solo-enrollment-human ID --solo-enrollment-routine ID] [--solo-loopback-fixture] [--host ADDRESS] [--port 0...65535]\n"
+        let usage = "Usage: tachi-coordinator [--db PATH] [--reference-teams] [--no-workspace-assignment-worker] [--solo-routines-file PATH] [--solo-enrollment-directory PATH --solo-enrollment-human ID --solo-enrollment-routine ID] [--solo-loopback-fixture] [--host ADDRESS] [--port 0...65535]\n"
         _ = usage.withCString { write(STDERR_FILENO, $0, usage.utf8.count) }
         exit(EXIT_FAILURE)
     }
@@ -146,9 +152,12 @@ do {
     exit(EXIT_FAILURE)
 }
 let history: WorkspaceHistory?
+let assistants: WorkspaceAssistantService?
 if let database, let accounts {
+    assistants = try WorkspaceAssistantService(path: database, accounts: accounts, solo: solo)
     history = try WorkspaceHistory(path: database, authority: CoordinatorAuthority(accounts: accounts))
 } else {
     history = nil
+    assistants = nil
 }
-try serve(host: host, port: port, accounts: accounts, teams: teams, solo: solo, history: history)
+try serve(host: host, port: port, accounts: accounts, teams: teams, solo: solo, history: history, assistants: assistants, runAssignments: runAssignments)

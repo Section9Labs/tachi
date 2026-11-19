@@ -24,6 +24,7 @@ final class CoordinatorHandler: ChannelInboundHandler {
     typealias OutboundOut = HTTPServerResponsePart
 
     private var maximum = 0
+    private let workspaceAssistants: WorkspaceAssistantService?
     private let history: WorkspaceHistory?
     private let solo: SoloRoutines?
     private let teams: ReferenceTeams?
@@ -33,7 +34,9 @@ final class CoordinatorHandler: ChannelInboundHandler {
     private var body = Data()
     private var responding = false
 
-    init(accounts: AccountStore?, pool: NIOThreadPool, teams: ReferenceTeams?, solo: SoloRoutines? = nil, history: WorkspaceHistory? = nil) {
+    init(accounts: AccountStore?, pool: NIOThreadPool, teams: ReferenceTeams?, solo: SoloRoutines? = nil, history: WorkspaceHistory? = nil,
+         workspaceAssistants: WorkspaceAssistantService? = nil) {
+        self.workspaceAssistants = workspaceAssistants
         self.history = history
         self.solo = solo
         self.teams = teams
@@ -80,6 +83,7 @@ final class CoordinatorHandler: ChannelInboundHandler {
             let isWorkspace = WorkspaceRoute.matches(head.uri)
             if let accounts, isWorkspace || isSolo || (teams != nil && ReferenceRoute.matches(head.uri)) {
                 let solo = self.solo, teams = self.teams, history = self.history
+                let assistants = workspaceAssistants
                 let payload = body
                 let headerError = head.method == .POST ? Self.checkHeaders(head.headers, maximum: maximum) : nil
                 let principal = pool.runIfActive(eventLoop: channel.eventLoop) {
@@ -88,6 +92,10 @@ final class CoordinatorHandler: ChannelInboundHandler {
                 let loop = channel.eventLoop
                 principal.flatMap { client in
                     loop.makeFutureWithTask {
+                        if isWorkspace, let assistants, let route = WorkspaceAssistantRoute(head.uri) {
+                            return try await route.reply(head.method, body: payload, headerError: headerError, client: client,
+                                                         accounts: accounts, service: assistants)
+                        }
                         if isWorkspace, let history {
                             return try await WorkspaceRoute.reply(head, body: payload, headerError: headerError, client: client,
                                                                   accounts: accounts, history: history)

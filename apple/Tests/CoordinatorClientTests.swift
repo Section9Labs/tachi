@@ -15,6 +15,23 @@ struct CoordinatorClientTests {
         #expect(first.baseURL == second.baseURL)
     }
 
+    @Test func sendsWorkspaceDirectMessageWithExactRecipientBytes() async throws {
+        let endpoint = try CoordinatorEndpoint("https://workspace.example")
+        let api = WorkspaceClient(client: client(), endpoint: endpoint,
+                                  credential: .init(clientID: "fixture-client", token: "fixture-bearer"))
+        let workspaces = try await api.list()
+        let workspace = try #require(workspaces.first)
+        #expect(workspace.role == .member)
+        let draft = WorkspaceClient.Draft(text: "fixture direct message", recipientID: "cafe\u{0301}")
+        try await api.send(draft, workspaceID: workspace.id)
+        let messages = try await api.messages(workspaceID: workspace.id)
+        let message = try #require(messages.first)
+        #expect(message.recipientID?.utf8.elementsEqual("cafe\u{0301}".utf8) == true)
+        await #expect(throws: CoordinatorError.unexpectedResponse) {
+            try await api.messages(workspaceID: "../workspace")
+        }
+    }
+
     @Test(arguments: [
         "coordinator.example", "https://", "ftp://coordinator.example", "https://coordinator.example:65536",
         "https://user:secret@coordinator.example", "https://coordinator.example/api",
@@ -151,6 +168,26 @@ private final class StatusURLProtocol: URLProtocol, @unchecked Sendable {
         }
         let authorization = request.value(forHTTPHeaderField: "Authorization")
         switch url.path {
+        case "/v1/workspaces" where request.httpMethod == "GET" && authorization == "Bearer fixture-bearer":
+            respond(200, #"{"workspaces":[{"workspace_id":"\#(soloFixtureTaskID)","role":"member"}]}"#, url: url)
+            return
+        case "/v1/workspaces/\(soloFixtureTaskID)/messages" where authorization == "Bearer fixture-bearer":
+            if request.httpMethod == "GET" {
+                respond(200, #"{"messages":[{"message_id":"\#(soloFixtureTaskID)","text":"fixture direct message","author_id":"fixture-human","recipient_id":"cafe\u0301"}]}"#, url: url)
+                return
+            }
+            guard request.httpMethod == "POST",
+                  request.value(forHTTPHeaderField: "Content-Type") == "application/json",
+                  let body = requestBody(), let fields = try? JSONDecoder().decode([String: String].self, from: body),
+                  Set(fields.keys) == ["message_id", "text", "recipient_id"],
+                  let identifier = fields["message_id"], Workspace.canonicalID(identifier) == identifier,
+                  fields["text"] == "fixture direct message",
+                  fields["recipient_id"]?.utf8.elementsEqual("cafe\u{0301}".utf8) == true else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+            respond(201, #"{"message_id":"\#(identifier)"}"#, url: url)
+            return
         case "/v1/solo/routines" where request.httpMethod == "GET" && authorization == "Bearer fixture-bearer":
             respond(200, #"{"routines":[{"routine_id":"demo","provider":"grok-bot"},{"routine_id":"../other","provider":"grok-bot"},{"routine_id":"fixture-other","provider":"other"}]}"#, url: url)
             return

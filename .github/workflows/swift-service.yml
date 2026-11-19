@@ -25,7 +25,20 @@ jobs:
           python3 -W error qa/linux_restore.py ./tachi-coordinator ./tachi-accounts
           docker exec "$container" tachi-accounts invite-client --db /var/lib/tachi/smoke.sqlite --human-id smoke --scope sessions:read --out /var/lib/tachi/smoke.invitation
           docker exec "$container" sqlite3 -readonly /var/lib/tachi/smoke.sqlite 'PRAGMA integrity_check' | grep -Fx ok
-          tar czf tachi-coordinator-linux-amd64.tar.gz tachi-coordinator tachi-accounts
+          tar czf tachi-coordinator-linux-amd64.tar.gz tachi-coordinator tachi-accounts -C deploy/linux tachi-coordinator.service
+      - name: Install the standalone archive and restart a paired workspace
+        shell: bash
+        run: |
+          set -eu
+          stage=$(mktemp -d)
+          tar xzf tachi-coordinator-linux-amd64.tar.gz -C "$stage"
+          sudo useradd --system --user-group --home-dir /var/lib/tachi --no-create-home --shell /usr/sbin/nologin tachi
+          sudo install -m 0755 "$stage/tachi-coordinator" "$stage/tachi-accounts" /usr/local/bin/
+          sudo install -m 0644 "$stage/tachi-coordinator.service" /etc/systemd/system/
+          sudo systemd-analyze verify /etc/systemd/system/tachi-coordinator.service
+          sudo systemctl daemon-reload
+          sudo systemctl enable --now tachi-coordinator.service
+          python3 -W error qa/linux_systemd.py
       - uses: actions/upload-artifact@v4
         with:
           name: tachi-coordinator-linux-amd64
@@ -61,4 +74,6 @@ jobs:
           python3 qa/swift_service_parity.py solo
           python3 qa/swift_service_parity.py workspaces
           python3 qa/swift_service_parity.py artifacts
+          python3 qa/swift_service_parity.py assignments
+          python3 qa/swift_service_parity.py export
           TACHI_TEST_COORDINATOR="$(swift build --show-bin-path)/tachi-coordinator" python3 -W error -m unittest discover -s tests -p 'test_runtime_team_http.py'

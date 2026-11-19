@@ -52,6 +52,8 @@ The inspector projects allowlisted method names and counts. A new Dot-named decl
 
 **Verified direction:** a synthetic MCP client reached the Swift resource over loopback. Public initialization and tool discovery succeeded. A denied call returned an MCP tool error carrying the OAuth linking challenge in both the response header and tool metadata. For an authorized call, the tool checked the grant with a synthetic introspection server and returned a receipt that matched independent disk readback. Restart preserved the receipt. Revoking the grant blocked subsequent access. Tachi also fetched OpenAI’s published OAuth client metadata anonymously and verified that its client identifier matched the document URL and that it listed redirect URIs. **Live provider status:** Tachi has no verified reachable gateway, installed workspace plugin, existing-Dot attachment, or native turn. [OpenAI client metadata](https://chatgpt.com/oauth/client.json)
 
+Linux operators can load the independently qualified image or build it from the package directory. [Image, TLS gateway configuration and qualification](../../Packages/TachiDot/README.md)
+
 ### Run the local trial
 
 From the repository root:
