@@ -56,15 +56,17 @@ def routine_listener(path, reply_status):
             worker.join()
 
 
-class SoloHTTPCheck(CoordinatorLab):
-    routines = "/v1/solo/routines"
-
-    def service_options(self, human, routine, url, secret):
-        config = self.directory / "routines.json"
+class RoutineLab(CoordinatorLab):
+    def service_options(self, human, routine, url, secret, filename="routines.json"):
+        config = self.directory / filename
         entry = {"human_id": human, "routine_id": routine, "webhook_url": url, "webhook_secret": secret}
         with os.fdopen(os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as file:
             json.dump({"routines": [entry]}, file)
         return ("--db", self.database, "--solo-routines-file", config, "--solo-loopback-fixture")
+
+
+class SoloHTTPCheck(RoutineLab):
+    routines = "/v1/solo/routines"
 
     def verify_flow(self, routine, reply_status, final_state):
         human = "synthetic-editor"

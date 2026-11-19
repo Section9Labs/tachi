@@ -12,7 +12,7 @@ struct CoordinatorAccountView: View {
     @State private var destination: Destination?
 
     private enum Destination: String, Identifiable {
-        case solo, teams
+        case solo, teams, workspaces
 
         var id: Self { self }
     }
@@ -78,6 +78,8 @@ struct CoordinatorAccountView: View {
                 .accessibilityIdentifier("coordinator-account-status")
 
             if case .paired(let account, _) = phase, account.scopes.contains("sessions:read") {
+                Button("Workspaces") { destination = .workspaces }
+                    .buttonStyle(.bordered)
                 Button("Solo Assistants") { destination = .solo }
                     .buttonStyle(.bordered)
                 Button("Reference Teams") { destination = .teams }
@@ -91,6 +93,11 @@ struct CoordinatorAccountView: View {
         .sheet(item: $destination, onDismiss: { Task { await checkAccount() } }) { destination in
             if case .paired(let account, let credential) = phase {
                 switch destination {
+                case .workspaces:
+                    WorkspacesView(
+                        api: WorkspaceClient(client: client, endpoint: endpoint, credential: credential),
+                        account: account
+                    )
                 case .solo:
                     SoloRoutinesView(
                         api: SoloRoutineClient(client: client, endpoint: endpoint, credential: credential),
