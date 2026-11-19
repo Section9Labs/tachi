@@ -23,6 +23,7 @@ jobs:
           docker cp "$container:/usr/local/bin/tachi-accounts" tachi-accounts
           if ! command -v sqlite3 >/dev/null; then sudo apt-get update && sudo apt-get install -y sqlite3; fi
           python3 -W error qa/linux_restore.py ./tachi-coordinator ./tachi-accounts
+          python3 -W error ServiceTests/Acceptance/queue_diagnostics.py ./tachi-coordinator
           docker exec "$container" tachi-accounts invite-client --db /var/lib/tachi/smoke.sqlite --human-id smoke --scope sessions:read --out /var/lib/tachi/smoke.invitation
           docker exec "$container" sqlite3 -readonly /var/lib/tachi/smoke.sqlite 'PRAGMA integrity_check' | grep -Fx ok
           tar czf tachi-coordinator-linux-amd64.tar.gz tachi-coordinator tachi-accounts -C deploy/linux tachi-coordinator.service
