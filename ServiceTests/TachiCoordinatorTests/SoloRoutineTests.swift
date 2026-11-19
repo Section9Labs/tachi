@@ -93,11 +93,29 @@ func reopenedSoloWorkerRechecksOriginAndCredential(rotateCredential: Bool) async
     let stored = try Data(contentsOf: directory.appendingPathComponent("secret"))
     let service = try await SoloRoutines(path: lab.database, accounts: lab.accounts, directory: directory.path,
                                          humanID: "fixture-owner", routineID: "sample", fixture: true)
-    #expect(service.list(try lab.client()) == [["provider": "grok-bot", "routine_id": "sample"]])
+    let catalogue = service.list(try lab.client())
+    let summary = try #require(catalogue.first)
+    #expect(catalogue.count == 1 && summary.provider == "grok-bot" && summary.routine_id == "sample")
+    #expect(summary.origin.scheme == "http" && summary.origin.host == "127.0.0.1" && summary.origin.port == 9)
     #expect(!FileManager.default.fileExists(atPath: lab.file.path))
     #expect(try Data(contentsOf: directory.appendingPathComponent("secret")) == stored)
     await #expect(throws: SoloConfigurationError.self) {
         _ = try await SoloRoutines(path: lab.database, accounts: lab.accounts, directory: directory.path,
                                    humanID: "other-human", routineID: "sample", fixture: true)
     }
+}
+
+@Test func soloCatalogueUsesEffectiveHTTPSPortWithoutSending() async throws {
+    let lab = try SoloLab()
+    defer { try? FileManager.default.removeItem(at: lab.folder) }
+    let entry = ["human_id": "fixture-owner", "routine_id": "sample",
+                 "webhook_url": "https://example.invalid/private-route", "webhook_secret": "private-fixture"]
+    try JSONEncoder().encode(["routines": [entry]]).write(to: lab.file)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: lab.file.path)
+    let service = try await SoloRoutines(path: lab.database, accounts: lab.accounts, config: lab.file.path, fixture: false)
+    let encoded = try JSONEncoder().encode(service.list(try lab.client()))
+    let summaries = try JSONDecoder().decode([JSONObject].self, from: encoded)
+    #expect(summaries == [["routine_id": .string("sample"), "provider": .string("grok-bot"),
+                           "origin": .object(["scheme": .string("https"), "host": .string("example.invalid"),
+                                              "port": .integer(443)])]])
 }
