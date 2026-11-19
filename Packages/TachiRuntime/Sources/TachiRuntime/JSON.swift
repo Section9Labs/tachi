@@ -6,6 +6,25 @@ public enum JSONValue: Sendable, Equatable, Codable {
     case null, bool(Bool), integer(Int64), double(Double), string(String)
     case array([JSONValue]), object(JSONObject)
 
+    // SQLite stores JSON text. A whole-valued Double can decode as an Int64 on reopen.
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.null, .null): return true
+        case let (.bool(a), .bool(b)): return a == b
+        case let (.integer(a), .integer(b)): return a == b
+        case let (.double(a), .double(b)): return a == b
+        case let (.integer(i), .double(d)), let (.double(d), .integer(i)): return Int64(exactly: d) == i
+        case let (.string(a), .string(b)): return a.utf8.elementsEqual(b.utf8)
+        case let (.array(a), .array(b)): return a == b
+        case let (.object(a), .object(b)):
+            return a.count == b.count && a.allSatisfy { key, value in
+                guard let index = b.index(forKey: key) else { return false }
+                return b[index].key.utf8.elementsEqual(key.utf8) && b[index].value == value
+            }
+        default: return false
+        }
+    }
+
     public init(from decoder: any Decoder) throws {
         let value = try decoder.singleValueContainer()
         if value.decodeNil() { self = .null }
