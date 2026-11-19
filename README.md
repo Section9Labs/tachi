@@ -56,3 +56,21 @@ A paired client with `sessions:read` can send an authenticated `GET /v1/workspac
 Current members can export room history. A direct message or artifact is visible to a sender or recipient whose current membership generation matches the one recorded when it was shared. Rejoining restores room history and starts a new generation for private exchanges.
 
 The export returns the whole visible result up to 100 messages, 16 artifacts, and 4 MiB of decoded artifact content combined. Crossing any limit returns HTTP 413 with `{"error":"export_limit"}`. Private rows outside the caller's audience do not contribute to these limits.
+
+## Delete an authored workspace artifact
+
+Send an authenticated, empty-body `DELETE /v1/workspaces/{workspace_id}/artifacts/{artifact_id}`. Use lowercase canonical UUIDs. The client needs `messages:send` and must belong to the human who uploaded the artifact, in the same membership generation. Another paired client of that author can perform the deletion.
+
+A successful request returns HTTP 200 with `{"deleted":true}`. The artifact disappears from downloads, lists and exports and its live quota is released. The service retains only the workspace and artifact IDs to prevent an upload retry from recreating it. Repeated deletion and otherwise valid uploads using that ID in the same workspace return 404. Use a fresh ID for a new upload.
+
+This deletes the artifact from the live coordinator database. Existing backups, earlier downloads and source messages or tasks have their own lifetimes. Deletion does not submit or replay work.
+
+## Assign workspace text to a Grok Bot routine
+
+A workspace owner can share one of their configured Grok Bot routines with the room. Every current member with permission to send messages can then send assignment text to that routine. The assignment and its delivery state are visible to members with read access. See the [Grok provider guide](docs/providers/grok.md) for grant setup. The coordinator accepts the owner's private configuration through `--solo-routines-file`.
+
+1. As the owner, use a paired client with `sessions:read` to list your enabled aliases at `GET /v1/solo/routines`.
+2. With `teams:manage` and `messages:send`, send `POST /v1/workspaces/{workspace_id}/assistants` with `{"routine_id":"my-routine","allow_room_assignments":true}`. The response contains a workspace-local `assistant_id`, provider `grok-bot`, capability `task`, and `native_session_observed:false`.
+3. As a member with `messages:send`, send `POST /v1/workspaces/{workspace_id}/assignments` with `assignment_id` (a fresh lowercase UUID), the returned `assistant_id`, and `text`. The webhook receives only the JSON object containing `text`. Use the same assignment ID and content if a client needs to retry.
+4. Read `GET /v1/workspaces/{workspace_id}/assignments/{assignment_id}` with `sessions:read`. An HTTP 200 from the webhook leaves the assignment active. A lost response leaves it uncertain. Tachi preserves that state across restart and keeps the next assignment to that binding queued. Check Grok Bot for the provider's result.
+5. To withdraw the grant, the owner sends `POST /v1/workspaces/{workspace_id}/assistants/{assistant_id}/revoke` with an empty JSON object. Revocation stops future dispatch. Work already submitted retains its recorded receipt or uncertainty.
