@@ -12,6 +12,11 @@ public struct ClientPrincipal: Sendable, Equatable {
     public let humanID: String
     public let clientID: String
     public let scopes: Set<String>
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.humanID.utf8.elementsEqual(rhs.humanID.utf8) && lhs.clientID.utf8.elementsEqual(rhs.clientID.utf8)
+            && lhs.scopes == rhs.scopes
+    }
 }
 
 func printable(_ value: String) -> Bool {
@@ -71,6 +76,7 @@ public struct AccountStore: Sendable {
                 );
                 CREATE INDEX IF NOT EXISTS account_clients_by_human ON account_clients(human_id);
                 """)
+            try db.script(Self.teamSchema)
         }
     }
 
