@@ -19,7 +19,7 @@ public actor WorkspaceHistory {
 
     public init(path: String, authority: any QueueAuthority) throws {
         self.authority = authority
-        db = try RuntimeDatabase(path: path)
+        let db = try RuntimeDatabase(path: path)
         try db.query("""
             CREATE TABLE IF NOT EXISTS rt_workspace_message (
                 seq INTEGER PRIMARY KEY, team TEXT NOT NULL, message TEXT NOT NULL,
@@ -28,7 +28,12 @@ public actor WorkspaceHistory {
                 CHECK ((recipient IS NULL) = (recipient_membership IS NULL))
             )
             """)
-        try db.query(Self.artifactSchema)
+        try db.transaction {
+            try db.query(Self.artifactSchema)
+            try db.query(Self.deletedArtifactSchema)
+            try db.query(Self.preventArtifactResurrection)
+        }
+        self.db = db
     }
 
     public func post(team: String, principal: QueuePrincipal, id: String, text: String, recipient: String?) throws {

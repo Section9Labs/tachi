@@ -14,17 +14,24 @@ enum WorkspaceArtifactRoute {
         return parts.count == 2 && WorkspaceRoute.validID(String(parts[0])) && parts[1] == "artifacts"
     }
 
-    static func reply(_ method: HTTPMethod, id: String?, team: String, principal: QueuePrincipal,
+    static func reply(_ head: HTTPRequestHead, id: String?, team: String, principal: QueuePrincipal,
                       body: Data, history: WorkspaceHistory) async throws -> Reply {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .withoutEscapingSlashes
-        switch (method, id) {
+        switch (head.method, id) {
         case (.GET, nil):
             return try await Reply(.ok, encoder.encode(["artifacts": history.artifacts(team: team, principal: principal)]))
         case (.GET, let id?):
             guard WorkspaceRoute.validID(id) else { throw QueueError.notFound }
             let result = try await history.artifact(team: team, principal: principal, id: id, sha256: digest)
             return try Reply(.ok, encoder.encode(result))
+        case (.DELETE, let id?):
+            guard WorkspaceRoute.validID(id) else { throw QueueError.notFound }
+            guard body.isEmpty, head.headers["Transfer-Encoding"].isEmpty,
+                  head.headers["Content-Length"].allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy { $0 == 48 } })
+            else { throw QueueError.invalidInput }
+            try await history.deleteArtifact(team: team, principal: principal, id: id)
+            return try Reply(.ok, encoder.encode(["deleted": true]))
         case (.POST, nil):
             let result = try await history.shareArtifact(upload(body), team: team, principal: principal, sha256: digest)
             return try Reply(.created, encoder.encode(result))

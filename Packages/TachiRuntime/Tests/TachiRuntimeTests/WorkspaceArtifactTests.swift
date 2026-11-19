@@ -68,6 +68,8 @@ private struct ArtifactLab {
     _ = try await lab.share(winner, on: second)
     await #expect(throws: QueueError.conflict) { _ = try await lab.share(lab.upload(id: winner.id, bytes: Data([1])), on: second) }
     #expect(try await second.artifacts(team: "workspace", principal: lab.principal).count == 256)
+    try await second.deleteArtifact(team: "workspace", principal: lab.principal, id: winner.id)
+    _ = try await lab.share(lab.upload(), on: lab.history)
 }
 
 @Test func byteQuotaAllowsEmptyArtifactsAndReplayAtCapacity() async throws {
@@ -82,6 +84,8 @@ private struct ArtifactLab {
     }
     _ = try await lab.share(original, on: lab.history)
     _ = try await lab.share(lab.upload(), on: lab.history)
+    try await lab.history.deleteArtifact(team: "workspace", principal: lab.principal, id: original.id)
+    _ = try await lab.share(lab.upload(bytes: full), on: lab.history)
 }
 
 @Test func privateTaskLinksKeepAudienceAndUploaderOrigin() async throws {
@@ -117,4 +121,75 @@ private struct ArtifactLab {
     await #expect(throws: QueueError.corruptStore) {
         _ = try await lab.history.export(team: "workspace", principal: lab.principal, sha256: checksum)
     }
+}
+
+@Test func deletionUpgradesExistingArtifactRowsAndReservesOnlyTheirIDs() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let path = directory.appendingPathComponent("old.sqlite").path
+    let db = try RuntimeDatabase(path: path)
+    let schema = try #require(Bundle.module.url(forResource: "workspace-artifact-before-deletion", withExtension: "sql",
+                                                subdirectory: "Fixtures"))
+    try db.query(String(contentsOf: schema, encoding: .utf8))
+    let principal = QueuePrincipal(humanID: "author", clientID: "original-device")
+    let queue = try TeamQueue(path: path, authority: ArtifactPolicy())
+    let identity = try AdapterIdentity(provider: "fixture", accountID: "synthetic", assistantID: "lead")
+    try await queue.addAssistant(team: "workspace", principal: principal, alias: "lead", identity: identity, sessionID: "fixture")
+    try await queue.createRun(team: "workspace", principal: principal, run: "run", lead: "assistant:lead", turnLimit: 1)
+    try await queue.post(team: "workspace", principal: principal, run: "run", message: "source-task", payload: [:],
+                         directTo: "assistant:lead", capability: .task)
+    let deliveries = try db.query("SELECT * FROM rt_delivery")
+    #expect(deliveries.count == 1 && deliveries.first?["state"] == "queued")
+    let id = UUID().uuidString.lowercased()
+    let oldInsert = """
+        INSERT INTO rt_workspace_artifact(team,artifact,name,content_type,size_bytes,sha256,content_base64,
+            origin,author,author_client,author_membership,source_task)
+        VALUES ('workspace',?,'legacy.txt','text/plain',1,'fixture-digest','YQ==','human_upload',
+                'author','original-device','author-generation','source-task')
+        """
+    try db.query(oldInsert, [id])
+    let history = try WorkspaceHistory(path: path, authority: ArtifactPolicy())
+    let sibling = QueuePrincipal(humanID: "author", clientID: "another-device")
+    let file = try await history.artifact(team: "workspace", principal: sibling, id: id, sha256: { _ in "fixture-digest" })
+    #expect(file["content_base64"] == .string("YQ=="))
+
+    // A failed reservation must roll back the removal too.
+    try db.query("""
+        CREATE TRIGGER fail_test_reservation BEFORE INSERT ON rt_deleted_workspace_artifact
+        BEGIN SELECT RAISE(ABORT,'test failure'); END
+        """)
+    await #expect(throws: QueueError.conflict) { try await history.deleteArtifact(team: "workspace", principal: sibling, id: id) }
+    #expect(try await history.artifacts(team: "workspace", principal: sibling).count == 1)
+    try db.query("DROP TRIGGER fail_test_reservation")
+    try await history.deleteArtifact(team: "workspace", principal: sibling, id: id)
+
+    let reopened = try WorkspaceHistory(path: path, authority: ArtifactPolicy())
+    #expect(try await reopened.artifacts(team: "workspace", principal: sibling).isEmpty)
+    #expect(try db.query("SELECT * FROM rt_workspace_artifact").isEmpty)
+    #expect(try db.query("SELECT * FROM rt_deleted_workspace_artifact") == [["team":"workspace","artifact":id]])
+    #expect(throws: QueueError.conflict) { try db.query(oldInsert, [id]) }
+    #expect(try db.query("SELECT * FROM rt_delivery") == deliveries)
+    #expect(try db.query("SELECT * FROM rt_event").isEmpty)
+    await #expect(throws: QueueError.notFound) { try await reopened.deleteArtifact(team: "workspace", principal: sibling, id: id) }
+}
+
+@Test func concurrentUploadReplayCannotResurrectDeletedArtifact() async throws {
+    let lab = try ArtifactLab()
+    defer { try? FileManager.default.removeItem(at: lab.directory) }
+    let other = try WorkspaceHistory(path: lab.path, authority: ArtifactPolicy())
+    let item = try lab.upload(bytes: Data([0xff]), to: "reader")
+    _ = try await lab.share(item, on: lab.history)
+    try await withThrowingTaskGroup(of: Void.self) { tasks in
+        tasks.addTask { try await lab.history.deleteArtifact(team: "workspace", principal: lab.principal, id: item.id) }
+        tasks.addTask {
+            do { _ = try await lab.share(item, on: other) }
+            catch QueueError.notFound { /* Delete committed first. */ }
+        }
+        try await tasks.waitForAll()
+    }
+    #expect(try await other.artifacts(team: "workspace", principal: lab.principal).isEmpty)
+    await #expect(throws: QueueError.notFound) { _ = try await lab.share(item, on: other) }
+    await #expect(throws: QueueError.notFound) { _ = try await lab.share(lab.upload(id: item.id), on: other) }
+    _ = try await lab.share(lab.upload(), on: other)
 }

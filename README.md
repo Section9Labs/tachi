@@ -59,6 +59,14 @@ Current members can export room history. A direct message or artifact is visible
 
 The export returns the whole visible result up to 100 messages, 16 artifacts, and 4 MiB of decoded artifact content combined. Crossing any limit returns HTTP 413 with `{"error":"export_limit"}`. Private rows outside the caller's audience do not contribute to these limits.
 
+## Delete an authored workspace artifact
+
+Send an authenticated, empty-body `DELETE /v1/workspaces/{workspace_id}/artifacts/{artifact_id}`. Use lowercase canonical UUIDs. The client needs `messages:send` and must belong to the human who uploaded the artifact, in the same membership generation. Another paired client of that author can perform the deletion.
+
+A successful request returns HTTP 200 with `{"deleted":true}`. The artifact disappears from downloads, lists and exports and its live quota is released. The service retains only the workspace and artifact IDs to prevent an upload retry from recreating it. Repeated deletion and otherwise valid uploads using that ID in the same workspace return 404. Use a fresh ID for a new upload.
+
+This deletes the artifact from the live coordinator database. Existing backups, earlier downloads and source messages or tasks have their own lifetimes. Deletion does not submit or replay work.
+
 ## Assign workspace text to a Grok Bot routine
 
 A workspace owner can share one of their configured Grok Bot routines with the room. Every current member with permission to send messages can then send assignment text to that routine. The assignment and its delivery state are visible to members with read access. See the [Grok provider guide](docs/providers/grok.md) for grant setup. The coordinator accepts the owner's private configuration through `--solo-routines-file`.
