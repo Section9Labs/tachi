@@ -54,9 +54,6 @@ extension WorkspaceHistory {
     private static let artifactColumns = """
         artifact,name,content_type,size_bytes,sha256,origin,author,recipient,source_message,source_task
         """
-    private static let visible = """
-        (recipient IS NULL OR (author=? AND author_membership=?) OR (recipient=? AND recipient_membership=?))
-        """
 
     public func shareArtifact(_ upload: WorkspaceArtifactUpload, team: String, principal: QueuePrincipal,
                               sha256: @Sendable (Data) -> String) throws -> JSONObject {
@@ -124,27 +121,37 @@ extension WorkspaceHistory {
         }
     }
 
+    func visibleArtifactRows(_ audience: WorkspaceAudience, limit: Int = -1) throws -> [Row] {
+        try db.query("""
+            SELECT \(Self.artifactColumns) FROM rt_workspace_artifact
+            WHERE \(WorkspaceAudience.predicate) ORDER BY seq LIMIT ?
+            """, audience.bindings + [String(limit)])
+    }
+
     public func artifacts(team: String, principal: QueuePrincipal) throws -> [JSONObject] {
         try db.transaction {
-            let generation = try authority.authorize(principal, team: team, scope: "sessions:read", membershipID: nil)
-            return try db.query("SELECT \(Self.artifactColumns) FROM rt_workspace_artifact WHERE team=? AND \(Self.visible) ORDER BY seq",
-                                [team, principal.humanID, generation, principal.humanID, generation]).map(metadata)
+            try visibleArtifactRows(readAudience(team: team, principal: principal)).map(metadata)
         }
+    }
+
+    func verifiedArtifact(_ id: String, audience: WorkspaceAudience, sha256: @Sendable (Data) -> String) throws -> JSONObject {
+        guard let row = try db.query("""
+            SELECT \(Self.artifactColumns),
+                CASE WHEN length(CAST(content_base64 AS BLOB)) = 4 * ((size_bytes + 2) / 3) THEN content_base64 END AS content_base64
+            FROM rt_workspace_artifact WHERE \(WorkspaceAudience.predicate) AND artifact=?
+            """, audience.bindings + [id]).first else { throw QueueError.notFound }
+        let content = try row.required("content_base64")
+        guard let bytes = Data(base64Encoded: content), String(bytes.count) == row["size_bytes"],
+              sha256(bytes) == row["sha256"] else { throw QueueError.corruptStore }
+        var result = try metadata(row)
+        result["content_base64"] = .string(content)
+        return result
     }
 
     public func artifact(team: String, principal: QueuePrincipal, id: String,
                          sha256: @Sendable (Data) -> String) throws -> JSONObject {
         try db.transaction {
-            let generation = try authority.authorize(principal, team: team, scope: "sessions:read", membershipID: nil)
-            guard let row = try db.query("""
-                SELECT \(Self.artifactColumns),content_base64 FROM rt_workspace_artifact WHERE team=? AND artifact=? AND \(Self.visible)
-                """, [team, id, principal.humanID, generation, principal.humanID, generation]).first else { throw QueueError.notFound }
-            let content = try row.required("content_base64")
-            guard let bytes = Data(base64Encoded: content), String(bytes.count) == row["size_bytes"],
-                  sha256(bytes) == row["sha256"] else { throw QueueError.corruptStore }
-            var result = try metadata(row)
-            result["content_base64"] = .string(content)
-            return result
+            try verifiedArtifact(id, audience: readAudience(team: team, principal: principal), sha256: sha256)
         }
     }
 

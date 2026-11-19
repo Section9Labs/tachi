@@ -1,0 +1,20 @@
+[Unit]
+Description=Tachi assistant coordinator
+After=network.target
+
+[Service]
+User=tachi
+Group=tachi
+StateDirectory=tachi
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/usr/local/bin/tachi-coordinator --host 127.0.0.1 --port 8743 --db /var/lib/tachi/coordinator.sqlite
+Restart=on-failure
+RestartSec=2s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

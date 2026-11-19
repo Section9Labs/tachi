@@ -114,4 +114,7 @@ private struct ArtifactLab {
     await #expect(throws: QueueError.corruptStore) {
         _ = try await lab.history.artifact(team: "workspace", principal: lab.principal, id: item.id, sha256: checksum)
     }
+    await #expect(throws: QueueError.corruptStore) {
+        _ = try await lab.history.export(team: "workspace", principal: lab.principal, sha256: checksum)
+    }
 }
