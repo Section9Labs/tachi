@@ -1,16 +1,10 @@
 """Pair hosts and authorize individual folder operations against current SQLite state."""
 
-import hashlib
 import secrets
-import sqlite3
-import time
-from contextlib import closing, contextmanager
 from dataclasses import dataclass, field
 from uuid import uuid4
 
-
-class AccessDenied(PermissionError):
-    """Missing, expired, revoked or mismatched authority."""
+from ._policy import AccessDenied, PolicyStore, _digest, _identifier, _require_one
 
 
 @dataclass(frozen=True)
@@ -48,18 +42,6 @@ CREATE INDEX IF NOT EXISTS host_grants_by_host ON host_grants(host_id);
 """
 
 
-def _digest(secret: str) -> bytes:
-    if not isinstance(secret, str) or not secret.isascii() or len(secret) != 43:
-        raise AccessDenied()
-    return hashlib.sha256(secret.encode("ascii")).digest()
-
-
-def _identifier(value: str) -> None:
-    # Reject non-strings before SQLite TEXT affinity can coerce principal IDs.
-    if not isinstance(value, str) or not value.strip() or not value.isprintable():
-        raise AccessDenied()
-
-
 def _scope(folder_id: str, action: str) -> None:
     _identifier(folder_id)
     if "/" in folder_id or "\\" in folder_id or folder_id in (".", ".."):
@@ -75,30 +57,12 @@ def _relative_path(path: str) -> None:
         raise AccessDenied()
 
 
-def _require_one(cursor: sqlite3.Cursor) -> None:
-    if cursor.rowcount != 1:
-        raise AccessDenied()
-
-
-class HostStore:
+class HostStore(PolicyStore):
     """Use a file-backed database in a coordinator-private directory."""
 
+    _schema = _SCHEMA
     PAIRING_SECONDS = 300
     LEASE_SECONDS = 30
-
-    def __init__(self, db_path, *, clock=time.time):
-        self._path = db_path
-        self._clock = clock
-        with self._connection() as db:
-            db.executescript(_SCHEMA)
-
-    @contextmanager
-    def _connection(self, *, write=False):
-        with closing(sqlite3.connect(self._path)) as db, db:
-            db.execute("PRAGMA foreign_keys = ON")
-            if write:
-                db.execute("BEGIN IMMEDIATE")
-            yield db
 
     def issue_pairing(self, owner_id: str) -> str:
         """Return a short-lived bearer invitation bound to the authenticated owner."""
