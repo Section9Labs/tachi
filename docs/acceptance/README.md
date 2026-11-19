@@ -59,6 +59,12 @@ afternoon,50,39
 
 Retain the causal chain from draft to assignment, native lookup, reviewer reply, lead receipt, Mac intervention and final artifact. A result written before the intervention fails step 6. If a connector cannot open the CSV under its own authority, record the blocker. Keep solo results, deterministic fixtures, and the two-provider outcome as separate runs.
 
+### Reproduce the queue portion
+
+Run `PYTHONPATH=. python3 qa/check_team_queue.py` from the integrated checkout. The test pairs two synthetic clients to the same human, registers two deterministic adapters and creates a team run. The lead receives the brief, the reviewer receives the assignment, and a reply correlated to the reviewer event reaches the original lead session. The second client pauses the run and posts the correction. After reopening the queue the edit stays pending until resume, then reaches the lead once. QA also ran all 47 repository tests at [queue revision fb717b6](https://github.com/Section9Labs/tachi/commit/fb717b6d4cb664f48b4f5edd980c033b3bb6dc10) on Python 3.11 and 3.14.
+
+The test driver supplies the finding and editorial instruction. The observed evidence is the persisted routing, event correlation, client authority and pause/resume behavior. Native file use, an Apple intervention and artifact retrieval still require the live procedure above.
+
 ## Host and failure runs
 
 Use isolated synthetic teams and run each injection separately. Record the last confirmed operation, observable state after the injection and the count of external effects. Each row is a procedure pending execution unless a scoped result is attached.
