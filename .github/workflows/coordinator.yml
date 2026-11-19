@@ -14,3 +14,19 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: python -m unittest discover -s tests -v
+
+  independent-qa:
+    name: Independent QA (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run independent coordinator and fixture checks
+        run: |
+          python -W error -m unittest discover -s qa -p 'check_*.py' -v
+          python -W error -m unittest discover -s qa -p 'test_*.py' -v

@@ -1,0 +1,58 @@
+name: Tachi
+options:
+  deploymentTarget:
+    iOS: "17.0"
+    macOS: "14.0"
+settings:
+  base:
+    GENERATE_INFOPLIST_FILE: YES
+    SWIFT_VERSION: "5.0"
+targetTemplates:
+  TachiApp:
+    type: application
+    sources: [Shared]
+    settings:
+      base:
+        PRODUCT_NAME: Tachi
+        PRODUCT_BUNDLE_IDENTIFIER: com.section9labs.tachi
+        INFOPLIST_KEY_CFBundleDisplayName: Tachi
+        INFOPLIST_FILE: Support/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+targets:
+  Tachi-iOS:
+    templates: [TachiApp]
+    platform: iOS
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+  Tachi-macOS:
+    templates: [TachiApp]
+    platform: macOS
+    settings:
+      base:
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_NSHumanReadableCopyright: Copyright © 2026 Section9Labs
+  TachiTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [Tests]
+    dependencies:
+      - target: Tachi-macOS
+    settings:
+      base:
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Tachi.app/Contents/MacOS/Tachi
+schemes:
+  Tachi-iOS:
+    build:
+      targets:
+        Tachi-iOS: all
+  Tachi-macOS:
+    build:
+      targets:
+        Tachi-macOS: all
+    test:
+      targets: [TachiTests]

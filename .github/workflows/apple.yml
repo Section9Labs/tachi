@@ -1,0 +1,29 @@
+name: Apple clients
+
+on:
+  pull_request:
+    paths: ['apple/**', '.github/workflows/apple.yml']
+  push:
+    branches: [main]
+    paths: ['apple/**', '.github/workflows/apple.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apple
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+      - name: Build and test macOS
+        run: xcodebuild -project Tachi.xcodeproj -scheme Tachi-macOS -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO test
+      - name: Build iOS Simulator
+        run: xcodebuild -project Tachi.xcodeproj -scheme Tachi-iOS -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
