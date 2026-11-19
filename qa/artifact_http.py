@@ -3,6 +3,7 @@
 import base64
 from contextlib import closing
 import hashlib
+import sqlite3
 import uuid
 
 from http_lab import CoordinatorLab
@@ -60,6 +61,90 @@ class ArtifactLab(CoordinatorLab):
 
 
 class ArtifactHTTPCheck(ArtifactLab):
+    def delete(self, workspace, token, artifact_id, status):
+        result = self.request("DELETE", workspace + "/artifacts/" + artifact_id, status, token=token)
+        if status == 200:
+            self.assertEqual(set(result), {"deleted"})
+            self.assertIs(result["deleted"], True)
+
+    def test_author_sibling_deletes_and_id_stays_reserved(self):
+        editor, reviewer = "synthetic-editor", "synthetic-reviewer"
+        scopes = ("messages:send", "sessions:read")
+        with self.coordinator():
+            owner = self.pair("synthetic-owner", "owner", *scopes, "teams:manage")
+            author = self.pair(editor, "author", *scopes)
+            sibling = self.pair(editor, "send-only", "messages:send")
+            read_only = self.pair(editor, "read-only", "sessions:read")
+            reader = self.pair(reviewer, "reviewer", *scopes)
+            workspace, other = self.workspace(owner), self.workspace(owner)
+            self.join(workspace, owner, editor, author)
+            self.join(workspace, owner, reviewer, reader)
+            message = {"message_id": new_id(), "text": "Review the sample."}
+            self.request("POST", workspace + "/messages", 201, token=author, payload=message)
+            sample = b"Private review notes.\n"
+            body = upload(sample, audience="direct", recipient_id=reviewer, source_message_id=message["message_id"])
+            item = self.check_upload(workspace, author, editor, body, sample)
+            identifier = item["artifact_id"]
+            detail = workspace + "/artifacts/" + identifier
+            self.check_content(workspace, reader, item, sample)
+            self.delete(workspace, None, identifier, 401)
+            self.delete(workspace, "synthetic-invalid", identifier, 401)
+            self.delete(workspace, read_only, identifier, 403)
+            self.delete(workspace, reader, identifier, 404)
+            self.delete(workspace, owner, identifier, 404)
+            self.delete(other, author, identifier, 404)
+            self.delete(workspace, author, new_id(), 404)
+            self.request("DELETE", detail, 400, token=author, payload={})
+            client = self.request("GET", "/v1/client/me", 200, token=author)["clientID"]
+            self.operator("revoke-client", editor, "--client-id", client)
+            self.delete(workspace, author, identifier, 401)
+            self.check_content(workspace, reader, item, sample)
+            self.delete(workspace, sibling, identifier, 200)
+            self.delete(workspace, sibling, identifier, 404)
+
+        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True)) as db:
+            self.assertEqual(db.execute("SELECT count(*) FROM rt_workspace_artifact").fetchone(), (0,))
+            reserved = db.execute("SELECT * FROM rt_deleted_workspace_artifact")
+            self.assertEqual([field[0] for field in reserved.description], ["team", "artifact"])
+            self.assertEqual(reserved.fetchall(), [("workspace/" + workspace.rsplit("/", 1)[1], identifier)])
+
+        with self.coordinator():
+            for token in (read_only, reader, owner):
+                self.catalogue(workspace, token, [])
+                self.request("GET", detail, 404, token=token)
+                report = self.request("GET", workspace + "/export", 200, token=token)
+                self.assertEqual(report["artifacts"], [])
+                self.assertEqual(report["messages"], [dict(message, author_id=editor, recipient_id=None)])
+            self.delete(workspace, sibling, identifier, 404)
+            writer = self.pair(editor, "writer", *scopes)
+            self.store(workspace, writer, body, 404)
+            changed = upload(b"replacement", artifact_id=identifier)
+            for token in (writer, reader, owner):
+                self.store(workspace, token, changed, 404)
+            self.check_upload(other, owner, "synthetic-owner", changed, b"replacement")
+            self.check_upload(workspace, writer, editor, dict(changed, artifact_id=new_id()), b"replacement")
+
+    def test_rejoined_author_can_read_room_upload_but_cannot_delete_it(self):
+        editor = "synthetic-editor"
+        scopes = ("messages:send", "sessions:read")
+        with self.coordinator():
+            owner = self.pair("synthetic-owner", "owner", *scopes, "teams:manage")
+            author = self.pair(editor, "author", *scopes)
+            sibling = self.pair(editor, "sibling", *scopes)
+            workspace = self.workspace(owner)
+            self.join(workspace, owner, editor, author)
+            data = b"Original room file."
+            old = self.check_upload(workspace, author, editor, upload(data), data)
+            self.request("POST", workspace + "/revocations", 200, token=owner, payload={"recipient_id": editor})
+            self.delete(workspace, sibling, old["artifact_id"], 404)
+            self.join(workspace, owner, editor, author)
+            self.check_content(workspace, sibling, old, data)
+            for token in (author, sibling, owner):
+                self.delete(workspace, token, old["artifact_id"], 404)
+            fresh = self.check_upload(workspace, author, editor, upload(data), data)
+            self.delete(workspace, sibling, fresh["artifact_id"], 200)
+            self.catalogue(workspace, author, [old])
+
     def test_scoped_documents_survive_restart_and_rejoin(self):
         editor, reviewer, owner_id = "synthetic-editor", "synthetic-reviewer", "synthetic-owner"
         scopes = ("messages:send", "sessions:read")
@@ -154,6 +239,9 @@ class ArtifactHTTPCheck(ArtifactLab):
                 self.store(workspace, token, dict(full, artifact_id=new_id()))
             self.assertEqual(self.store(workspace, token, full), meta)
             self.store(workspace, token, upload(b"x"), 413)
+            self.delete(workspace, token, full["artifact_id"], 200)
+            self.store(workspace, token, dict(full, artifact_id=new_id()))
+            self.store(workspace, token, upload(b"x"), 413)
 
     def test_envelope_validation_and_replay_at_workspace_count_quota(self):
         with self.coordinator():
@@ -175,4 +263,7 @@ class ArtifactHTTPCheck(ArtifactLab):
             for _ in range(255):
                 self.store(workspace, token, dict(empty, artifact_id=new_id()))
             self.assertEqual(self.store(workspace, token, empty), meta)
+            self.store(workspace, token, dict(empty, artifact_id=new_id()), 413)
+            self.delete(workspace, token, empty["artifact_id"], 200)
+            self.store(workspace, token, dict(empty, artifact_id=new_id()))
             self.store(workspace, token, dict(empty, artifact_id=new_id()), 413)
