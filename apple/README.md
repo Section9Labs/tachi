@@ -19,3 +19,11 @@ Start the coordinator with its account database configured. Ask the coordinator 
 Use a new local label and a separate invitation for a second account or another client of the same person. To return to a saved account, enter its label and select **Check Account**. Tachi will ask for another invitation if the coordinator revokes that client. The public status check works independently of pairing.
 
 For a simulator pairing test, build with Xcode’s default local simulator signing. Keychain access requires the simulator application identifier entitlement. The unsigned CI command above checks compilation.
+
+## Try a reference team
+
+Enable the coordinator’s `--reference-teams` option with its account database and pair a client with `sessions:read`. Select **Reference Teams**. Creating a team or changing its run requires `teams:manage`, and posting requires `messages:send`. Authorized sibling clients for the same human can reopen the team from their own team list.
+
+Select a direct audience or mention Lead or Peer from the room composer. Direct replies keep the original audience. Use **Pause Run** and **Resume Run** to intervene. Choose **Refresh Team** to fetch delivery state, then open a completed result. The reference assistants return synthetic word counts.
+
+If a send fails, its text, audience, reply and stable message ID stay in the local outbox. Use **Retry Pending Messages** after the coordinator is reachable. Rejected sends remain visible for manual removal, and later pending messages can still send. Pending sends belong to the paired client that queued them.
