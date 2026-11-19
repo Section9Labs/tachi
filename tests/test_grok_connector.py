@@ -14,8 +14,10 @@ from tachi.providers.grok.adapter import GrokBotAdapter
 from tachi.providers.grok.connector import (
     ConnectorError,
     HttpResult,
+    NotSent,
     RoutineRejected,
     SubmissionUnobserved,
+    bind_webhook,
     evidence,
     probe_client,
     published_release,
@@ -130,41 +132,47 @@ class QuotaTests(unittest.TestCase):
 
 class RoutineTests(unittest.TestCase):
     def test_billed_api_is_refused(self) -> None:
-        with self.assertRaises(ConnectorError):
-            trigger_routine(
-                "https://api.x.ai/v1/responses",
-                "test-secret",
-                {"task": "pong"},
-                transport=lambda *_: HttpResult(200, b""),
-            )
+        posts = {"n": 0}
+
+        def transport(request, timeout):
+            posts["n"] += 1
+            return HttpResult(200)
+
+        with self.assertRaises(NotSent):
+            bind_webhook("https://api.x.ai/v1/responses", "test-secret")
+        with self.assertRaises(NotSent):
+            trigger_routine("https://api.x.ai/v1/responses", {"task": "pong"}, transport=transport)
+        self.assertEqual(posts["n"], 0)
 
     def test_http_200_is_accepted_and_not_complete(self) -> None:
         seen = {}
 
         def transport(request: urllib.request.Request, timeout: float) -> HttpResult:
+            seen["url"] = request.full_url
             seen["auth"] = request.get_header("Authorization")
             seen["body"] = json.loads(request.data.decode())
-            return HttpResult(200, b"")
+            return HttpResult(200)
 
+        grant = bind_webhook("https://hooks.example.invalid/routine", "test-secret")
         result = trigger_routine(
-            "https://hooks.example.invalid/routine",
-            "test-secret",
+            grant,
             {"task": "Reply with the single word pong."},
             transport=transport,
         )
+        self.assertEqual(seen["url"], grant.destination())
         self.assertTrue(result.accepted)
         self.assertFalse(result.completed)
+        self.assertEqual(seen["url"], "https://hooks.example.invalid/routine")
         self.assertEqual(seen["auth"], "Bearer test-secret")
         self.assertEqual(seen["body"]["task"], "Reply with the single word pong.")
 
     def test_non_200_hides_the_bearer(self) -> None:
         def transport(request, timeout):
-            return HttpResult(401, b"no")
+            return HttpResult(401)
 
         with self.assertRaises(RoutineRejected) as caught:
             trigger_routine(
-                "https://hooks.example.invalid/routine",
-                "test-secret",
+                bind_webhook("https://hooks.example.invalid/routine", "test-secret"),
                 None,
                 transport=transport,
             )
@@ -191,10 +199,12 @@ class RoutineTests(unittest.TestCase):
         try:
             port = server.server_address[1]
             result = trigger_routine(
-                f"http://127.0.0.1:{port}/routine",
-                "loopback-secret",
+                bind_webhook(
+                    f"http://127.0.0.1:{port}/routine",
+                    "loopback-secret",
+                    allow_loopback=True,
+                ),
                 {"task": "synthetic pong"},
-                allow_loopback=True,
             )
         finally:
             server.shutdown()
@@ -247,10 +257,12 @@ class RoutineTests(unittest.TestCase):
             port = redirect_server.server_address[1]
             with self.assertRaises(RoutineRejected) as caught:
                 trigger_routine(
-                    f"http://127.0.0.1:{port}/routine",
-                    "loopback-secret",
+                    bind_webhook(
+                        f"http://127.0.0.1:{port}/routine",
+                        "loopback-secret",
+                        allow_loopback=True,
+                    ),
                     {"task": "synthetic pong"},
-                    allow_loopback=True,
                 )
         finally:
             landing_server.shutdown()
@@ -271,17 +283,250 @@ class RoutineTests(unittest.TestCase):
 
         def transport(request, timeout):
             called["n"] += 1
-            return HttpResult(200, b"")
+            return HttpResult(200)
 
         result = trigger_routine(
-            "https://hooks.example.invalid/routine",
-            "test-secret",
+            bind_webhook("https://hooks.example.invalid/routine", "test-secret"),
             {"task": "pong"},
             transport=transport,
         )
         self.assertEqual(called["n"], 1)
         self.assertTrue(result.accepted)
         self.assertFalse(result.completed)
+
+    def test_secret_is_bound_to_the_issued_origin_and_path(self) -> None:
+        secret = "test-secret"
+        issued = bind_webhook("https://hooks.example.invalid/routine", secret)
+        self.assertEqual(issued.destination(), "https://hooks.example.invalid/routine")
+        self.assertEqual(bind_webhook("https://HOOKS.Example.Invalid:443/routine", secret), issued)
+        self.assertNotEqual(
+            issued.destination(),
+            bind_webhook("https://hooks.example.invalid/other", secret).destination(),
+        )
+        self.assertNotEqual(
+            issued.destination(),
+            bind_webhook("https://other.example.invalid/routine", secret).destination(),
+        )
+        self.assertEqual(
+            bind_webhook("https://hooks.example.invalid:8443/routine", secret).destination(),
+            "https://hooks.example.invalid:8443/routine",
+        )
+        self.assertEqual(
+            bind_webhook("https://hooks.example.invalid/routine/", secret).destination(),
+            "https://hooks.example.invalid/routine/",
+        )
+        self.assertNotIn(secret, repr(issued))
+        seen = {}
+
+        def transport(request, timeout):
+            seen["url"] = request.full_url
+            return HttpResult(200)
+
+        trigger_routine(issued, {"task": "pong"}, transport=transport)
+        self.assertEqual(seen["url"], issued.destination())
+
+    def test_untrusted_destinations_are_not_sent(self) -> None:
+        posts = {"n": 0}
+
+        def transport(request, timeout):
+            posts["n"] += 1
+            return HttpResult(200)
+
+        refused = (
+            "https://hooks.example.invalid/routine?token=test-secret",
+            "https://hooks.example.invalid/routine#fragment",
+            "https://user:test-secret@hooks.example.invalid/routine",
+            "https://8.8.8.8/routine",
+            "https://[::1]/routine",
+            "https://api.x.ai/v1/responses",
+            "https://mtls.api.x.ai/v1/responses",
+            "https://api2.cursor.sh/updates/api/download/stable/darwin-arm64/sand",
+            "http://hooks.example.invalid/routine",
+            "https://hooks.example.invalid/",
+            "https://hooks.example.invalid",
+            "https://hooks.example.invalid/routine/../other",
+            "https://hooks.example.invalid/routine/%2e%2e/other",
+            "https://hooks.example.invalid/%2froutine",
+            "https://hooks.example.invalid/./routine",
+            "https://hooks.example.invalid//routine",
+            "http://127.0.0.1/routine",
+            "https://127.0.0.1/routine",
+        )
+        for url in refused:
+            with self.subTest(url=url):
+                with self.assertRaises(NotSent) as caught:
+                    bind_webhook(url, "test-secret")
+                self.assertNotIn("test-secret", str(caught.exception))
+                with self.assertRaises(NotSent):
+                    trigger_routine(url, {"task": "pong"}, transport=transport)
+        with self.assertRaises(NotSent):
+            bind_webhook("https://hooks.example.invalid/routine", "test secret")
+        with self.assertRaises(NotSent):
+            bind_webhook(
+                "http://hooks.example.invalid/routine",
+                "test-secret",
+                allow_loopback=True,
+            )
+        with self.assertRaises(NotSent):
+            bind_webhook("https://127.0.0.1/routine", "test-secret", allow_loopback=True)
+        self.assertEqual(posts["n"], 0)
+
+    def test_observed_500_is_a_rejection_and_is_not_replayed(self) -> None:
+        hits = {"n": 0}
+        marker = b'{"error":"SHOULD-NOT-LEAK"}'
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                hits["n"] += 1
+                self.send_response(500)
+                self.send_header("Content-Length", str(len(marker)))
+                self.end_headers()
+                self.wfile.write(marker)
+
+            def log_message(self, fmt: str, *args) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            grant = bind_webhook(
+                f"http://127.0.0.1:{port}/routine",
+                "loopback-secret",
+                allow_loopback=True,
+            )
+            with self.assertRaises(RoutineRejected) as caught:
+                trigger_routine(grant, {"task": "synthetic pong"}, timeout=2)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        self.assertEqual(caught.exception.status, 500)
+        self.assertNotIn("SHOULD-NOT-LEAK", str(caught.exception))
+        self.assertNotIn("loopback-secret", str(caught.exception))
+        self.assertEqual(hits["n"], 1)
+
+    def test_timeout_is_uncertain_after_one_post(self) -> None:
+        hits = {"n": 0}
+        release = threading.Event()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                hits["n"] += 1
+                release.wait(timeout=5)
+                try:
+                    self.send_response(200)
+                    self.end_headers()
+                except OSError:
+                    return
+
+            def log_message(self, fmt: str, *args) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            grant = bind_webhook(
+                f"http://127.0.0.1:{port}/routine",
+                "loopback-secret",
+                allow_loopback=True,
+            )
+            with self.assertRaises(SubmissionUnobserved) as caught:
+                trigger_routine(grant, {"task": "synthetic pong"}, timeout=0.5)
+            self.assertNotIn("loopback-secret", str(caught.exception))
+            self.assertEqual(hits["n"], 1)
+        finally:
+            release.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_response_body_cannot_complete_the_run(self) -> None:
+        release = threading.Event()
+        hits = {"n": 0}
+        marker = b'{"completed": true, "native_reply": true, "marker": "SHOULD-NOT-LEAK"}'
+
+        class BlockingHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                hits["n"] += 1
+                self.send_response(200)
+                self.send_header("Content-Length", "64")
+                self.end_headers()
+                if not release.wait(timeout=3):
+                    return
+                try:
+                    self.wfile.write(marker)
+                except OSError:
+                    return
+
+            def log_message(self, fmt: str, *args) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), BlockingHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            grant = bind_webhook(
+                f"http://127.0.0.1:{port}/routine",
+                "loopback-secret",
+                allow_loopback=True,
+            )
+            result = trigger_routine(grant, {"task": "synthetic pong"}, timeout=2)
+        finally:
+            release.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        self.assertTrue(result.accepted)
+        self.assertFalse(result.completed)
+        self.assertEqual(result.status, 200)
+        self.assertNotIn("SHOULD-NOT-LEAK", repr(result))
+        self.assertFalse(hasattr(result, "body"))
+        self.assertEqual(hits["n"], 1)
+
+        class WritingHandler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                hits["n"] += 1
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(marker)))
+                self.end_headers()
+                self.wfile.write(marker)
+
+            def log_message(self, fmt: str, *args) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), WritingHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            grant = bind_webhook(
+                f"http://127.0.0.1:{port}/routine",
+                "loopback-secret",
+                allow_loopback=True,
+            )
+            result = trigger_routine(grant, {"task": "synthetic pong"}, timeout=2)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        self.assertTrue(result.accepted)
+        self.assertFalse(result.completed)
+        self.assertNotIn("SHOULD-NOT-LEAK", repr(result))
+        self.assertNotIn("native_reply", repr(result))
+        self.assertEqual(hits["n"], 2)
 
 
 class AdapterTests(unittest.TestCase):
@@ -316,7 +561,7 @@ class AdapterTests(unittest.TestCase):
 
         def transport(request: urllib.request.Request, timeout: float) -> HttpResult:
             seen["body"] = json.loads(request.data.decode())
-            return HttpResult(200, b"")
+            return HttpResult(200)
 
         adapter = GrokBotAdapter(
             identity,
@@ -354,7 +599,7 @@ class AdapterTests(unittest.TestCase):
 
         def transport(request, timeout):
             called["n"] += 1
-            return HttpResult(200, b"")
+            return HttpResult(200)
 
         adapter = GrokBotAdapter(
             identity,
@@ -374,7 +619,7 @@ class AdapterTests(unittest.TestCase):
             identity,
             webhook_url="https://api.x.ai/v1/responses",
             webhook_secret="synthetic-secret",
-            transport=lambda *_: HttpResult(200, b""),
+            transport=lambda *_: HttpResult(200),
         )
         events = adapter.dispatch(self._request(identity))
         self.assertEqual(events[0].kind, EventKind.FAILED)
@@ -400,6 +645,121 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(DispatchUncertain):
             registry.dispatch(self._request(identity))
         self.assertEqual(calls["n"], 1)
+
+    def test_query_on_the_configured_url_is_not_sent(self) -> None:
+        identity = self._identity()
+        calls = {"n": 0}
+
+        def transport(request, timeout):
+            calls["n"] += 1
+            return HttpResult(200)
+
+        adapter = GrokBotAdapter(
+            identity,
+            webhook_url="https://hooks.example.invalid/routine?x=1",
+            webhook_secret="synthetic-secret",
+            transport=transport,
+        )
+        events = adapter.dispatch(self._request(identity))
+        self.assertEqual(events[0].kind, EventKind.FAILED)
+        self.assertEqual(events[0].payload, {"reason": "not_sent"})
+        self.assertEqual(calls["n"], 0)
+
+    def test_observed_500_fails_once_and_does_not_complete(self) -> None:
+        identity = self._identity()
+        calls = {"n": 0}
+
+        def transport(request, timeout):
+            calls["n"] += 1
+            return HttpResult(500)
+
+        adapter = GrokBotAdapter(
+            identity,
+            webhook_url="https://hooks.example.invalid/routine",
+            webhook_secret="synthetic-secret",
+            transport=transport,
+        )
+        events = adapter.dispatch(self._request(identity))
+        self.assertEqual(calls["n"], 1)
+        self.assertEqual(events[0].kind, EventKind.FAILED)
+        self.assertEqual(events[0].payload, {"reason": "rejected", "status": 500})
+        self.assertNotEqual(events[0].kind, EventKind.COMPLETED)
+
+    def test_timeout_dispatch_is_uncertain_after_one_post(self) -> None:
+        identity = self._identity()
+        hits = {"n": 0}
+        release = threading.Event()
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                hits["n"] += 1
+                release.wait(timeout=5)
+
+            def log_message(self, fmt: str, *args) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            adapter = GrokBotAdapter(
+                identity,
+                webhook_url=f"http://127.0.0.1:{port}/routine",
+                webhook_secret="synthetic-secret",
+                allow_loopback=True,
+            )
+            registry = AdapterRegistry()
+            registry.register(adapter)
+            with self.assertRaises(DispatchUncertain):
+                registry.dispatch(self._request(identity))
+            self.assertEqual(hits["n"], 1)
+        finally:
+            release.set()
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+    def test_response_body_cannot_complete_dispatch(self) -> None:
+        identity = self._identity()
+        marker = b'{"completed": true, "native_reply": true, "marker": "SHOULD-NOT-LEAK"}'
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(marker)))
+                self.end_headers()
+                self.wfile.write(marker)
+
+            def log_message(self, fmt: str, *args) -> None:
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            port = server.server_address[1]
+            adapter = GrokBotAdapter(
+                identity,
+                webhook_url=f"http://127.0.0.1:{port}/routine",
+                webhook_secret="synthetic-secret",
+                allow_loopback=True,
+            )
+            events = adapter.dispatch(self._request(identity))
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        text = json.dumps(events[0].payload)
+        self.assertEqual(events[0].kind, EventKind.ACCEPTED)
+        self.assertFalse(events[0].payload["native_reply"])
+        self.assertNotIn("SHOULD-NOT-LEAK", text)
+        self.assertNotIn("completed", text)
+        self.assertNotEqual(events[0].kind, EventKind.COMPLETED)
 
 
 class EvidenceTests(unittest.TestCase):

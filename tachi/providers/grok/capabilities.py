@@ -39,7 +39,7 @@ CAPABILITIES = (
         "operation": "task.routine_webhook",
         "app": "supported",
         "programmatic": "yes",
-        "note": "POST the operator webhook. HTTP 200 means the run was accepted. It is not a Bot reply.",
+        "note": "POST the webhook URL copied from the desktop routine. The secret stays on that origin and path. HTTP 200 means the run was accepted. It is not a Bot reply.",
     },
     {
         "operation": "approval.decide",

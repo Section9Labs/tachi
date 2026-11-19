@@ -37,7 +37,7 @@ Authoritative guides: [overview](https://docs.x.ai/grok-bot/overview), [get star
 
 People message a named Bot from the desktop app, the iOS and Android apps, Slack, or X Chat. The same bots share one cloud computer. A direct message can redirect work in progress. "Stop now" ends the turn and does not undo finished actions. Approval cards, email and Slack drafts, payments, and outbound phone calls wait in the app. Voice chat reconnects once on a short drop, then ends. Recreating the cloud computer drops sign-ins that lived on that computer.
 
-A routine can start from a schedule, a connected-app event, or a webhook. The webhook is an HTTPS POST to the URL shown in the desktop routine, with the key in `Authorization: Bearer` and an optional JSON body. HTTP 200 means Grok Bot accepted the call and started a run. The routines guide says to check the Bot's chat for the result. Any other response means a run did not start. This connector sends the secret only to that URL and does not follow a redirect. Enterprise inference hooks are a separate outbound control.
+A routine can start from a schedule, a connected-app event, or a webhook. The webhook is an HTTPS POST to the URL shown in the desktop routine, with the key in `Authorization: Bearer` and an optional JSON body. HTTP 200 means Grok Bot accepted the call and started a run. The routines guide says to check the Bot's chat for the result. Any other response means a run did not start. This connector binds the secret to that exact origin and path, does not follow a redirect, and discards the response body. Enterprise inference hooks are a separate outbound control.
 
 No public Grok Bot model id or session SDK is documented. The deployment guide's release feed is the sanctioned way to read the current desktop version.
 
@@ -61,7 +61,7 @@ No public Grok Bot model id or session SDK is documented. The deployment guide's
 | `probe_client` | Reads the installed desktop plist. No account data. |
 | `fetch_release` | GET the documented `api2.cursor.sh` stable feed only. |
 | `describe` | Returns this capability inventory. |
-| `trigger_routine` | POST the operator webhook. Mapped to v1 `task`. 200 is `ACCEPTED` with `native_reply` false. |
+| `trigger_routine` | POST a bound webhook grant. No URL argument. 200 is `ACCEPTED` with `native_reply` false. An observed non-200, including 5xx, is a rejection. A timeout is uncertain after one POST. |
 
 Refused: xAI API hosts, API-key billing, Grok Build prompts, Grok chat, copied app tokens, and transcript reads.
 
@@ -74,7 +74,7 @@ Refused: xAI API hosts, API-key billing, Grok Build prompts, Grok chat, copied a
 | Voice | Supported | No |
 | Attachments and pages | Supported. Pages need desktop 0.60.0+ or phone 1.14.0+, and are not on Enterprise yet | No |
 | Tools and computer | Supported, including outbound MCP or API use by the Bot | No inbound invoke API |
-| Routine webhook | Supported | Yes, with the operator webhook URL and secret |
+| Routine webhook | Supported | Yes. The secret is bound to the issued origin and path |
 | Approvals and payments | Supported in the app | No |
 | Cancel a turn | "Stop now", hang up, end call, pause a routine | No cancel token for a webhook run |
 | Recovery | Quit and reopen. Voice retries once. Computer recreate drops sign-in | No |
@@ -88,7 +88,7 @@ This engineering record did not start a routine. For a user who already has an a
 
 `quota.py` remains an engineering gate for shared-account spend probes. `grok usage` belongs to Grok Build and returned no plan figure, so it is not a checkpoint source. When an engineer writes a checkpoint, it comes from Grok Bot Settings → Usage & Billing with `source` `grok-bot-settings` or `operator-attestation`, `billing` `subscription`, and `weekly_pool` `available`. It must be under 12 hours old and must not contain an account id.
 
-The webhook URL and secret are minted in the signed-in app. They are not in this repository. The secret is sent only to that URL. A redirect is a non-200 response and is not followed.
+The webhook URL and secret are minted in the signed-in app. They are not in this repository. `bind_webhook` freezes the secret to that scheme, host, port, and path. `trigger_routine` accepts the grant and has no URL argument. A query, fragment, userinfo, raw IP, billed API host, or the release-feed host is refused before a POST. A redirect is a non-200 response and is not followed. The response body is closed unread.
 
 ## Result path
 
@@ -100,16 +100,17 @@ The same guide does not document a signed callback to the webhook caller, and it
 
 Inference hooks are an Enterprise control in the other direction. Cursor POSTs a signed Standard Webhooks request to the team's security server, using a `whsec_` secret and the `webhook-id`, `webhook-timestamp`, and `webhook-signature` headers, so that server can allow or deny a model call. A policy block can show later as a failed routine in the app, and the Cursor dashboard can show a block note. That signature does not deliver the routine result to the webhook that started the run.
 
-No further owner step. This connector does not ask the user to paste a chat reply, and it does not read the chat or the phone history. Acceptance stays one `ACCEPTED` event with `native_reply` false.
+No further owner step. This connector does not ask the user to paste a chat reply, and it does not read the chat or the phone history. Acceptance stays one `ACCEPTED` event with `native_reply` false. A response body is not proof of completion. This connector has no completion call.
 
 ## Contract friction
 
 The connector imports the pinned v1 types from `tachi.runtime` and registers through `AdapterRegistry`. These are the points where Grok Bot does not fit that contract. The contract itself is unchanged.
 
 - **`task` is a routine trigger.** The only sanctioned programmatic start is a webhook for a routine the operator already saved. The JSON payload is forwarded as the webhook body. Grok Bot does not treat that payload as a new free-form assignment, and it does not return a Bot reply on the HTTP call.
-- **An accepted routine is not a native reply.** HTTP 200 becomes one `ACCEPTED` event with `routine_accepted` true, `native_reply` false, and `native_session_observed` false. The connector never emits `COMPLETED` or `PROGRESS` for that response.
+- **An accepted routine is not a native reply.** HTTP 200 becomes one `ACCEPTED` event with `routine_accepted` true, `native_reply` false, and `native_session_observed` false. The connector never emits `COMPLETED` or `PROGRESS` for that response. The response body is discarded, so a body that claims completion cannot change that event.
 - **`session_id` is not a Bot conversation id.** Events copy `identity`, `session_id`, and `request_id` from the request and do not replace them. The webhook response has no native conversation id. A native id cannot be written into `session_id` without breaking the registry's same-session rule.
-- **The webhook is not idempotent, and redirects are off.** The secret is attached to the configured URL only. A 3xx response becomes `RoutineRejected` and then a `FAILED` event. The connector does not open the `Location`. An unobserved POST raises `DispatchUncertain` after one attempt. This process does not replay it. A later retry would start a second routine. The durable queue is a separate layer and is not implemented here.
+- **The secret is bound to the issued origin and path.** `trigger_routine` takes a `WebhookGrant` from `bind_webhook`. A raw URL, a different path, a query, a fragment, userinfo, a raw IP, `api.x.ai`, `mtls.api.x.ai`, or `api2.cursor.sh` is refused with no POST. Redirects stay off. A 3xx response becomes `RoutineRejected` and then a `FAILED` event. The connector does not open the `Location`.
+- **An observed non-200 is a rejection. A missing response is uncertain.** The routines guide says any response other than 200 means a run did not start, so an observed 5xx becomes `RoutineRejected` and then a `FAILED` event. A timeout is not a response. It raises `DispatchUncertain` after one POST. This process does not replay either outcome. A later retry would start a second routine. The durable queue is a separate layer and is not implemented here.
 - **Authority is the operator webhook.** An engineering quota checkpoint is not a product step and is not consulted on dispatch. The connector does not hold the Cursor or Grok session. `account_id` and `assistant_id` are caller-supplied opaque strings. The product does not offer an API that lists those ids.
 - **Unsupported work stays unadvertised.** `message`, `attachment`, `tools`, `cancel`, and `recover` are absent from `capabilities`. The registry raises `UnsupportedCapability` before `dispatch`. In-app stop, approval, and reopen exist, and there is no v1 operation for them.
 

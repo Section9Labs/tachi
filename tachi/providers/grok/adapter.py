@@ -10,6 +10,7 @@ from tachi.providers.grok.connector import (
     NotSent,
     RoutineRejected,
     SubmissionUnobserved,
+    bind_webhook,
     trigger_routine,
 )
 from tachi.providers.grok.product import PRODUCT_ID
@@ -51,13 +52,12 @@ class GrokBotAdapter:
         if not self._webhook_url or not self._webhook_secret:
             return (self._event(request, EventKind.FAILED, {"reason": "webhook_unconfigured"}),)
         try:
-            acceptance = trigger_routine(
+            grant = bind_webhook(
                 self._webhook_url,
                 self._webhook_secret,
-                request.payload,
-                transport=self._transport,
                 allow_loopback=self._allow_loopback,
             )
+            acceptance = trigger_routine(grant, request.payload, transport=self._transport)
         except NotSent:
             return (self._event(request, EventKind.FAILED, {"reason": "not_sent"}),)
         except RoutineRejected as exc:

@@ -1,6 +1,8 @@
 """Grok Bot connector. Not the xAI API and not Grok Build."""
 
 from tachi.providers.grok.connector import (
+    WebhookGrant,
+    bind_webhook,
     describe,
     evidence,
     probe_client,
@@ -12,6 +14,8 @@ from tachi.providers.grok.product import PRODUCT_ID, SubstituteRejected, reject_
 __all__ = [
     "PRODUCT_ID",
     "SubstituteRejected",
+    "WebhookGrant",
+    "bind_webhook",
     "describe",
     "evidence",
     "probe_client",
