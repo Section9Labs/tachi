@@ -2,7 +2,20 @@
 
 Tachi is an independent, MIT-licensed assistant harness for iOS and macOS. It is being built to connect people to their existing assistants and let assistants from different providers work together. Provider identities, tools and approval flows stay with the original assistant runtime.
 
-## Run the development coordinator
+## Run the Swift coordinator
+
+From the repository root, run `swift run tachi-coordinator` and request `http://127.0.0.1:8743/v1/status`. The default listener is loopback. Use `--port 0` for an available port or `--host` to set the listen address.
+
+For a standalone Linux service, build and run the container:
+
+```sh
+docker build -t tachi-service .
+docker run --rm -p 127.0.0.1:8743:8743 tachi-service
+```
+
+The image runs the release executable as an unprivileged user on Ubuntu 24.04. Linux CI packages the same executable as a downloadable amd64 archive. The Swift service currently serves the status endpoint. Pairing, team delivery and provider dispatch are being ported under [#55](https://github.com/Section9Labs/tachi/issues/55).
+
+## Run the compatibility reference
 
 From a checkout with Python 3.11 or newer, run:
 
