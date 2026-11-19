@@ -1,0 +1,42 @@
+name: Linux Dot plugin
+on:
+  pull_request:
+    paths: &paths
+      - 'Packages/TachiDot/**'
+      - '.github/workflows/dot-linux.yml'
+  push:
+    branches: [main]
+    paths: *paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  operator-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      DOT_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DOT_REVISION }}
+          persist-credentials: false
+      - name: Build the standalone plugin
+        run: docker build -t tachi-dot-plugin:$DOT_REVISION Packages/TachiDot
+      - name: Exercise the image behind a local HTTPS gateway
+        run: python3 -W error Packages/TachiDot/Tests/container_https.py tachi-dot-plugin:$DOT_REVISION
+      - name: Export the qualified image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker save "tachi-dot-plugin:$DOT_REVISION" | gzip -1 > tachi-dot-plugin-linux-amd64.tar.gz
+          sha256sum tachi-dot-plugin-linux-amd64.tar.gz > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tachi-dot-plugin-linux-amd64-${{ env.DOT_REVISION }}
+          path: |
+            tachi-dot-plugin-linux-amd64.tar.gz
+            SHA256SUMS
+          retention-days: 7
