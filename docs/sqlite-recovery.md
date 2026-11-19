@@ -91,6 +91,8 @@ docker inspect --format '{{.Config.Image}} {{.Image}}' tachi > "$backup/image.tx
 
 ## Restore or rehearse an upgrade
 
+Before returning a restored instance to service, follow [Restoring a backup after a deletion](workspace-retention.md#restoring-a-backup-after-a-deletion) to reconcile workspace content, reserved IDs and current access.
+
 Choose a **new, unused volume name** for each rehearsal. The original instance and volume stay available. The following command restores into an empty volume and checks SQLite integrity. Choose the candidate image for an upgrade rehearsal. The helper has no network access.
 
 ```sh

@@ -53,6 +53,8 @@ The operator delivers the invitation privately to the intended person. Within fi
 
 ## Export a human workspace
 
+For stored history, saved copies and recovery after a deletion, see [Workspace data retention and recovery](docs/workspace-retention.md).
+
 A paired client with `sessions:read` can send an authenticated `GET /v1/workspaces/{workspace_id}/export` to a Swift coordinator started with `--db`. Use the workspace's lowercase canonical UUID. The JSON response contains `workspace_id`, ordered `messages`, and ordered `artifacts`. Each artifact includes its metadata and SHA-256-verified `content_base64`.
 
 Current members can export room history. A direct message or artifact is visible to a sender or recipient whose current membership generation matches the one recorded when it was shared. Rejoining restores room history and starts a new generation for private exchanges.
