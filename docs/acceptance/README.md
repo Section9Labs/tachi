@@ -53,6 +53,18 @@ All six service HTTP scenarios passed with `TACHI_TEST_COORDINATOR` set to the b
 
 The Linux release build at the same revision stopped at `CoordinatorHandler.swift:76` with a Swift region-based isolation checker error. The packaged Linux HTTP tests could not run at this revision. [Linux build log](https://github.com/Section9Labs/tachi/actions/runs/44452700271/job/135320234965)
 
+## Authenticated solo routine over HTTP
+
+QA built Swift coordinator `65abe90` and its account operator from a clean archive on arm64 macOS 27.0.1 with Swift 6.4.2. Paired clients used the product solo routes and the private operator file to reach a disposable Grok webhook through the compiled connector. Each case used its own database and loopback listener. The listener observed the authorized POST and exact JSON payload before the first task-status read. [Product revision](https://github.com/Section9Labs/tachi/commit/65abe906a7fff4f71a8f502243981caa75f81ba4) · [Reproduction command](../../qa/swift-parity.md)
+
+| Listener behavior | Task state after restart and same-ID sibling resend | Persisted events | Observed POSTs |
+| --- | --- | --- | --- |
+| Returned HTTP 200 | `accepted` | One acceptance receipt | 1 |
+| Returned HTTP 503 | `rejected` | One failure with status 503 | 1 |
+| Read POST, closed before sending headers | `uncertain` | None | 1 |
+
+The other human saw an empty catalogue and received 404 on direct access. A read-only sibling received 403 on submit and could read the stored result after restart. Reusing the ID with a changed payload returned 409. Each snapshot had `native_result_available: false` and `result: null`. This run qualifies paired-client HTTP through the connector to a controlled endpoint. Apple UI interaction, a provider-side action tied to an existing native session, and retrieval of its output require separate observations.
+
 ## Solo attachment and retrieval
 
 1. On iPhone, use the connector's authorized subscription/SSO flow. Select an existing lab assistant. Record the provider, account and assistant as run-local aliases. Select a synthetic prior conversation if listing is supported. If the provider supports creating conversations, open a fresh one and verify the assistant identity stays the same. Record provisioning a new assistant separately.

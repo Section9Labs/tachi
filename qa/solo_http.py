@@ -1,10 +1,11 @@
 """Black-box checks for paired-client HTTP through a configured solo connector."""
 
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
 import secrets
+import sqlite3
 import time
 import uuid
 from threading import Event, Lock, Thread
@@ -85,6 +86,7 @@ class SoloHTTPCheck(CoordinatorLab):
 
         path = f"/fixture/{routine}"
         expected = [(path, True, body["payload"])]
+        in_flight = (dict(settled, state="queued"), dict(settled, state="uncertain"))
         with routine_listener(path, reply_status) as (url, secret, observed, posted):
             options = self.service_options(human, routine, url, secret)
             with self.serve(self.service_command, *options, cwd=self.service_root):
@@ -103,7 +105,7 @@ class SoloHTTPCheck(CoordinatorLab):
                 self.assertFalse(observed(), "an unauthorized request reached the webhook")
 
                 receipt = self.request("POST", submit, 202, token=owner, payload=body)
-                self.assertTrue(receipt in (settled, dict(settled, state="queued")),
+                self.assertTrue(receipt == settled or receipt in in_flight,
                                 "unexpected initial task snapshot")
                 self.assertTrue(posted.wait(15), "POST did not reach the webhook before the first status read")
                 deadline = time.monotonic() + 15
@@ -111,7 +113,7 @@ class SoloHTTPCheck(CoordinatorLab):
                     snapshot = self.request("GET", history, 200, token=sibling)
                     if snapshot == settled:
                         break
-                    self.assertTrue(snapshot == dict(settled, state="queued"), "unexpected task snapshot")
+                    self.assertTrue(snapshot in in_flight, "unexpected task snapshot")
                     if time.monotonic() >= deadline:
                         self.fail("task did not settle before the deadline")
                     time.sleep(0.05)
@@ -131,6 +133,22 @@ class SoloHTTPCheck(CoordinatorLab):
                                 "task snapshot changed after resend")
             self.assertTrue(observed() == expected,
                             "restart or retry caused an additional webhook submission")
+
+        # The public snapshot does not expose event counts. Audit the stopped disposable DB read-only.
+        with closing(sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True)) as db:
+            self.assertEqual(db.execute("SELECT message FROM rt_delivery").fetchall(), [(task_id,)])
+            events = db.execute("SELECT kind, payload FROM rt_event ORDER BY seq").fetchall()
+        if reply_status is None:
+            self.assertFalse(events, "an unobserved response created a durable event")
+        elif reply_status == 200:
+            self.assertEqual([kind for kind, _ in events], ["accepted"])
+            self.assertTrue(json.loads(events[0][1]) == {"routine_accepted": True, "native_reply": False,
+                                                         "native_session_observed": False},
+                            "unexpected acceptance receipt")
+        else:
+            self.assertEqual([kind for kind, _ in events], ["failed"])
+            self.assertTrue(json.loads(events[0][1]) == {"reason": "rejected", "status": reply_status},
+                            "unexpected rejection receipt")
 
     def test_observed_acceptance_survives_restart(self):
         self.verify_flow("accept", 200, "accepted")
