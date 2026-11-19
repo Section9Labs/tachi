@@ -18,7 +18,7 @@ Confirmed from the live pages on 2026-11-18.
 | Website www.instinct.com | Confirmed | Terms and privacy policy |
 | App host app.instinct.com | Confirmed | Homepage, terms, and privacy policy |
 | Paths `/workspace` and `/settings` | Confirmed | Homepage, terms, and privacy policy |
-| Sign-in path | Ambiguous | Homepage call to action is `https://app.instinct.com/login`. SMS terms name `https://app.instinct.com/signin` |
+| Sign-in path | Two published entry points | Homepage call to action is `https://app.instinct.com/login`. SMS terms name the OTP flow at `https://app.instinct.com/signin` |
 | Bundle id | Ambiguous | Unpublished on the homepage, the 2026-11-17 terms, the privacy policy, and the SMS terms |
 | Session API | Unpublished on those pages | No adapter |
 
@@ -26,14 +26,14 @@ Secondary write-ups from early November 2026 still describe an invite-only beta 
 
 ## Authorization
 
-No team-controlled Instinct account is available in this session. Sign-in on the official site is the account at `app.instinct.com`. No subscription price is stated on the homepage. This project will not use a billed model API as a stand-in, and it will not reverse engineer the service.
+No team-controlled Instinct account is available in this session. The supported native path is the product itself: open `https://app.instinct.com/signin`, enter a phone number, and receive one SMS one-time code, as the SMS terms describe. The homepage also links to `https://app.instinct.com/login`, which presents a sign-in page. After sign-in the interface is a text or a phone call. No subscription price is stated on the homepage. This project will not use a billed model API as a stand-in, and it will not reverse engineer the service. No sign-in was completed.
 
 ## Matrix
 
 | Operation | Status | Evidence |
 | --- | --- | --- |
 | Identity | A personal assistant reached by text or call | instinct.com, 2026-11-19 |
-| Sign in | Login URL exists. Account path beyond that page was not opened | Homepage only |
+| Sign in | Phone number and one SMS code at `app.instinct.com/signin`, or the homepage login page | SMS terms and homepage. Not exercised |
 | Send a message | In product, by text | Homepage. No programmatic client found |
 | Voice | A phone call is part of the product description | Homepage |
 | Attachments | Not stated on the homepage | Unknown |
