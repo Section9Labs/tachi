@@ -17,16 +17,18 @@ extension Dictionary where Key == String, Value == String {
 final class RuntimeDatabase {
     private let db: OpaquePointer
 
-    init(path: String) throws {
+    init(path: String, readOnly: Bool = false) throws {
         var handle: OpaquePointer?
-        let rc = sqlite3_open_v2(path, &handle, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nil)
+        let flags = readOnly ? SQLITE_OPEN_READONLY : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE
+        let rc = sqlite3_open_v2(path, &handle, flags, nil)
         guard rc == SQLITE_OK, let handle else {
             sqlite3_close(handle)
             throw QueueError.storage(rc)
         }
         db = handle
         sqlite3_busy_timeout(db, 5000)
-        let setup = sqlite3_exec(db, "PRAGMA foreign_keys=ON;\n" + runtimeSchema, nil, nil, nil)
+        let setupSQL = readOnly ? "PRAGMA query_only=ON" : "PRAGMA foreign_keys=ON;\n" + runtimeSchema
+        let setup = sqlite3_exec(db, setupSQL, nil, nil, nil)
         guard setup == SQLITE_OK else { throw QueueError.storage(setup) }
     }
 

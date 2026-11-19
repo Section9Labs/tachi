@@ -62,6 +62,18 @@ docker cp tachi:/tmp/first.invitation "$private/first.invitation"
 docker exec tachi rm /tmp/first.invitation
 ```
 
+## Diagnose stuck work
+
+Run the installed coordinator as a local operator with read access to the service database.
+
+```sh
+sudo -u tachi /usr/local/bin/tachi-coordinator diagnostics --db /var/lib/tachi/coordinator.sqlite
+```
+
+The command prints one JSON object with `runs` and `deliveries`. Each contains coordinator-wide counts under fixed state names, including zeros. Unrecognized states contribute to `other`. A paused run can explain pending work. A blocked delivery needs a prerequisite resolved, while an uncertain delivery needs reconciliation before an operator considers a retry.
+
+Both counts come from one read-only SQLite transaction, including committed changes in a live WAL. The command exits after printing the snapshot. On failure it writes a generic error to stderr and exits with a nonzero status. Operators can compare successive snapshots to see whether the backlog is changing.
+
 ## Back up a running instance
 
 The SQLite online backup includes committed WAL transactions. Both temporary directories below are private and newly created. The resulting snapshot contains sensitive account and team state. Preserve it and the recorded image revision on protected storage off the host.
