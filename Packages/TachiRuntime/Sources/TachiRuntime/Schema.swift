@@ -33,4 +33,12 @@ CREATE TABLE IF NOT EXISTS rt_event (
     seq INTEGER PRIMARY KEY, request TEXT NOT NULL REFERENCES rt_delivery(request),
     event TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL, UNIQUE(request, event)
 );
+CREATE TABLE IF NOT EXISTS rt_workspace_binding (
+    team TEXT NOT NULL, member TEXT NOT NULL, binding TEXT NOT NULL UNIQUE,
+    routine TEXT NOT NULL, credential_generation TEXT NOT NULL,
+    grantor TEXT NOT NULL, client TEXT NOT NULL, membership TEXT NOT NULL,
+    enabled INTEGER NOT NULL CHECK(enabled IN (0,1)), PRIMARY KEY(team,member),
+    FOREIGN KEY(team,member) REFERENCES rt_assistant(team,member)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS rt_workspace_enabled ON rt_workspace_binding(team) WHERE enabled=1;
 """

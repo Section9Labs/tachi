@@ -116,13 +116,22 @@ public actor TeamQueue {
 
     func insertPost(team: String, principal: QueuePrincipal, generation: String, author: String,
                             run: String, message: String, payload: JSONObject, directTo: String?, mentions: [String],
-                            replyTo: String?, capability: Capability, scope: HostScope?, parent: AdapterEvent?) throws {
+                            replyTo: String?, capability: Capability, scope: HostScope?, parent: AdapterEvent?, workspaceAssignment: Bool = false) throws {
         try requireIDs(team, run, message)
         if let replyTo { try requireIDs(replyTo) }
         guard payload["_tachi_host_scope"] == nil, directTo == nil || mentions.isEmpty,
               Set(mentions.map { Data($0.utf8) }).count == mentions.count else { throw QueueError.invalidInput }
         if scope != nil && directTo?.hasPrefix("assistant:") != true { throw QueueError.denied }
         let addresses = directTo.map { [$0] } ?? mentions
+        if !workspaceAssignment {
+            guard try db.query("SELECT 1 FROM rt_workspace_binding WHERE team=? AND binding=?", [team,run]).isEmpty else {
+                throw QueueError.denied
+            }
+            for address in addresses where address.hasPrefix("assistant:") {
+                guard try db.query("SELECT 1 FROM rt_workspace_binding WHERE team=? AND member=?", [team,address]).isEmpty
+                else { throw QueueError.denied }
+            }
+        }
         var recipientGeneration: String?
         for address in addresses {
             let membership = try recipient(address, team: team)
