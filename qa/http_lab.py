@@ -53,6 +53,14 @@ class CoordinatorLab(unittest.TestCase):
         subprocess.run([*self.operator_command, command, "--db", self.database,
                         "--human-id", human, *arguments], cwd=self.service_root, check=True, timeout=10)
 
+    def pair(self, human, label, *scopes):
+        file = self.directory / label
+        scope_args = [arg for scope in scopes for arg in ("--scope", scope)]
+        self.operator("invite-client", human, *scope_args, "--out", file)
+        response = self.request("POST", "/v1/client/pair", 201,
+                                payload={"invitation": file.read_text().strip()})
+        return response["token"]
+
     def request(self, method, path, status, *, payload=None, token=None):
         headers = {"Accept": "application/json"}
         body = None
