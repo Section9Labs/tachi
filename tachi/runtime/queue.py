@@ -119,10 +119,12 @@ class TeamQueue:
         _ids(team, alias, session_id)
         with self._write():
             self._authorize(team, principal, "teams:manage")
-            self.db.execute("INSERT INTO rt_assistant VALUES(?,?,?,?,?,?)", (
-                team, "assistant:" + alias, identity.provider, identity.account_id,
-                identity.assistant_id, session_id,
-            ))
+            self._insert_assistant(team, alias, identity, session_id)
+
+    def _insert_assistant(self, team, alias, identity, session_id):
+        self.db.execute("INSERT INTO rt_assistant VALUES(?,?,?,?,?,?)", (
+            team, "assistant:" + alias, identity.provider, identity.account_id, identity.assistant_id, session_id,
+        ))
 
     @staticmethod
     def _limit(value):
@@ -137,8 +139,11 @@ class TeamQueue:
             if not lead.startswith("assistant:"):
                 raise ValueError("run lead must be a bound assistant")
             self._recipient(team, lead)
-            self.db.execute("INSERT INTO rt_run(team,run,lead,turn_limit) VALUES(?,?,?,?)",
-                            (team, run, lead, turn_limit))
+            self._insert_run(team, run, lead, turn_limit)
+
+    def _insert_run(self, team, run, lead, turn_limit):
+        self.db.execute("INSERT INTO rt_run(team,run,lead,turn_limit) VALUES(?,?,?,?)",
+                        (team, run, lead, turn_limit))
 
     def _run(self, team, run):
         row = self.db.execute("SELECT * FROM rt_run WHERE team=? AND run=?", (team, run)).fetchone()
@@ -298,19 +303,20 @@ class TeamQueue:
             messages.append(message)
         return messages
 
-    def _claim(self, host_id):
+    def _claim(self, host_id, team_id):
         with self._write():
             row = self.db.execute("""
                 SELECT d.request,d.target,d.team,m.*,a.provider,a.account,a.assistant,a.session
                 FROM rt_delivery d JOIN rt_message m USING(team,message)
                 JOIN rt_assistant a ON a.team=d.team AND a.member=d.target
                 JOIN rt_run r ON r.team=m.team AND r.run=m.run
-                WHERE d.state='queued' AND d.host IS ? AND r.state='running' AND r.turns<r.turn_limit
+                WHERE d.state='queued' AND d.host IS ? AND (? IS NULL OR d.team=?)
+                AND r.state='running' AND r.turns<r.turn_limit
                 AND NOT EXISTS (
                     SELECT 1 FROM rt_delivery prev WHERE prev.team=d.team AND prev.target=d.target
                     AND prev.seq<d.seq AND prev.state IN ('queued','uncertain','active','blocked')
                 ) ORDER BY d.seq LIMIT 1
-            """, (host_id,)).fetchone()
+            """, (host_id, team_id, team_id)).fetchone()
             if row is None:
                 return None
             # From this commit until a correlated terminal event, replay is unsafe.
@@ -319,7 +325,7 @@ class TeamQueue:
             return row
 
     def dispatch_one(self, registry: AdapterRegistry, *, host_session: HostSession | None = None,
-                     host_store: HostStore | None = None) -> str | None:
+                     host_store: HostStore | None = None, team_id: str | None = None) -> str | None:
         """Claim one cloud delivery, or one delivery for this authenticated host worker.
 
         For host work the adapter receives the exact authorized _tachi_host_scope in
@@ -328,7 +334,7 @@ class TeamQueue:
         """
         if (host_session is None) != (host_store is None):
             raise ValueError("host workers require both a session and a store")
-        row = self._claim(host_session.host_id if host_session else None)
+        row = self._claim(host_session.host_id if host_session else None, team_id)
         if row is None:
             return None
         identity = AdapterIdentity(row["provider"], row["account"], row["assistant"])
