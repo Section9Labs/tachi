@@ -20,7 +20,7 @@ def upload(data, **fields):
             "content_base64": base64.b64encode(data).decode("ascii"), "audience": "room", **fields}
 
 
-class ArtifactHTTPCheck(CoordinatorLab):
+class ArtifactLab(CoordinatorLab):
     def coordinator(self):
         return self.serve(self.service_command, "--db", self.database, cwd=self.service_root)
 
@@ -58,6 +58,8 @@ class ArtifactHTTPCheck(CoordinatorLab):
         rows = self.request("GET", workspace + "/artifacts", 200, token=token)
         self.assertTrue(rows == {"artifacts": expected}, "unexpected artifact metadata, audience or order")
 
+
+class ArtifactHTTPCheck(ArtifactLab):
     def test_scoped_documents_survive_restart_and_rejoin(self):
         editor, reviewer, owner_id = "synthetic-editor", "synthetic-reviewer", "synthetic-owner"
         scopes = ("messages:send", "sessions:read")
