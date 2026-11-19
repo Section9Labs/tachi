@@ -7,7 +7,7 @@ import os
 import secrets
 import time
 import uuid
-from threading import Lock, Thread
+from threading import Event, Lock, Thread
 
 from http_lab import CoordinatorLab
 
@@ -18,6 +18,7 @@ def routine_listener(path, reply_status):
     secret = secrets.token_urlsafe(32)
     observations = []
     lock = Lock()
+    posted = Event()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -32,6 +33,7 @@ def routine_listener(path, reply_status):
             authorized = self.headers.get("Authorization") == f"Bearer {secret}"
             with lock:
                 observations.append((self.path, authorized, body))
+                posted.set()
             if reply_status is None:
                 self.close_connection = True
                 return
@@ -47,7 +49,7 @@ def routine_listener(path, reply_status):
         worker = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05})
         worker.start()
         try:
-            yield f"http://127.0.0.1:{server.server_port}{path}", secret, snapshot
+            yield f"http://127.0.0.1:{server.server_port}{path}", secret, snapshot, posted
         finally:
             server.shutdown()
             worker.join()
@@ -83,7 +85,7 @@ class SoloHTTPCheck(CoordinatorLab):
 
         path = f"/fixture/{routine}"
         expected = [(path, True, body["payload"])]
-        with routine_listener(path, reply_status) as (url, secret, observed):
+        with routine_listener(path, reply_status) as (url, secret, observed, posted):
             options = self.service_options(human, routine, url, secret)
             with self.serve(self.service_command, *options, cwd=self.service_root):
                 owner = self.pair(human, "origin", *both)
@@ -103,6 +105,7 @@ class SoloHTTPCheck(CoordinatorLab):
                 receipt = self.request("POST", submit, 202, token=owner, payload=body)
                 self.assertTrue(receipt in (settled, dict(settled, state="queued")),
                                 "unexpected initial task snapshot")
+                self.assertTrue(posted.wait(15), "POST did not reach the webhook before the first status read")
                 deadline = time.monotonic() + 15
                 while True:
                     snapshot = self.request("GET", history, 200, token=sibling)
