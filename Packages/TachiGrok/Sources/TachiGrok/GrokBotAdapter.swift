@@ -33,6 +33,24 @@ public struct GrokBotAdapter: Adapter, CustomStringConvertible, CustomDebugStrin
         self.capabilities = configured ? [.task] : []
     }
 
+    /// Build from a grant `loadRoutineGrant` already bound to this human and destination.
+    public init(
+        identity: AdapterIdentity,
+        grant: WebhookGrant,
+        transport: WebhookTransport? = nil,
+        allowLoopback: Bool = false
+    ) throws {
+        let bound = try bindWebhook(grant.destination(), secret: grant.secret, allowLoopback: allowLoopback)
+        guard bound == grant else { throw GrokConnectorError.notSent }
+        try self.init(
+            identity: identity,
+            webhookURL: bound.destination(),
+            webhookSecret: bound.secret,
+            transport: transport,
+            allowLoopback: allowLoopback
+        )
+    }
+
     public func dispatch(_ request: DispatchRequest) async throws -> [AdapterEvent] {
         if request.capability != .task {
             return [try failed(request, ["reason": .string("unsupported")])]
