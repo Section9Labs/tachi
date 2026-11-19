@@ -101,6 +101,10 @@ extension TeamQueue {
                 else { throw QueueError.conflict }
                 return try assignmentSummary(existing)
             }
+            // Another queue operation may already own this ID. Its audience is outside the assignment route.
+            guard try db.query("SELECT 1 FROM rt_message WHERE team=? AND message=?", [team,id]).isEmpty else {
+                throw QueueError.notFound
+            }
             guard let row = try db.query("SELECT * FROM rt_workspace_binding WHERE team=? AND binding=? AND enabled=1",
                                          [team, assistantID]).first else { throw QueueError.notFound }
             _ = try checkGrant(row, lookup: lookup)

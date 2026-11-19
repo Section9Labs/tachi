@@ -15,21 +15,25 @@ extension TeamQueue {
             AND EXISTS (SELECT 1 FROM rt_workspace_binding b WHERE b.team=d.team AND b.member=d.target
                         AND b.binding=m.run AND b.enabled=1)
             """
+        let select = """
+            SELECT d.request,d.target,m.*,a.provider,a.account,a.assistant,a.session
+            FROM rt_delivery d JOIN rt_message m USING(team,message)
+            JOIN rt_assistant a ON a.team=d.team AND a.member=d.target
+            JOIN rt_run r ON r.team=m.team AND r.run=m.run
+            WHERE d.state='queued' AND d.host IS ? AND (? IS NULL OR d.team=?)
+            \(referenceFilter)
+            \(bindingFilter)
+            AND (d.host IS NULL OR a.provider<>'tachi-folder')
+            AND r.state='running' AND r.turns<r.turn_limit AND NOT EXISTS (
+                SELECT 1 FROM rt_delivery prev WHERE prev.team=d.team AND prev.target=d.target
+                AND prev.seq<d.seq AND prev.state IN ('queued','uncertain','active','blocked')
+            ) ORDER BY d.seq LIMIT 1
+            """
+        let arguments = [host, team, team]
+        // Idle workers (including a lane held by a receipt) need no SQLite writer lock.
+        if workspaceOnly, try db.query(select, arguments).isEmpty { return nil }
         return try db.transaction {
-            guard let row = try db.query("""
-                SELECT d.request,d.target,m.*,a.provider,a.account,a.assistant,a.session
-                FROM rt_delivery d JOIN rt_message m USING(team,message)
-                JOIN rt_assistant a ON a.team=d.team AND a.member=d.target
-                JOIN rt_run r ON r.team=m.team AND r.run=m.run
-                WHERE d.state='queued' AND d.host IS ? AND (? IS NULL OR d.team=?)
-                \(referenceFilter)
-                \(bindingFilter)
-                AND (d.host IS NULL OR a.provider<>'tachi-folder')
-                AND r.state='running' AND r.turns<r.turn_limit AND NOT EXISTS (
-                    SELECT 1 FROM rt_delivery prev WHERE prev.team=d.team AND prev.target=d.target
-                    AND prev.seq<d.seq AND prev.state IN ('queued','uncertain','active','blocked')
-                ) ORDER BY d.seq LIMIT 1
-                """, [host, team, team]).first else { return nil }
+            guard let row = try db.query(select, arguments).first else { return nil }
             // Persist ambiguity before leaving SQLite. A process exit from here on cannot authorize replay.
             try db.query("UPDATE rt_delivery SET state='uncertain',reason=NULL WHERE request=?", [row.required("request")])
             try db.query("UPDATE rt_run SET turns=turns+1 WHERE team=? AND run=?", [row.required("team"), row.required("run")])
@@ -65,18 +69,22 @@ extension TeamQueue {
         let capabilities: Set<Capability>?
         do { capabilities = try await registry.capabilities(for: identity) }
         catch RuntimeError.unknownIdentity { capabilities = nil }
-        do {
-            try authorize(origin, row.required("team"), "messages:send", generation: row.required("membership"))
-        } catch QueueError.denied {
-            return try notSubmitted(row, state: "denied", reason: "origin_denied")
-        }
         if let lookup {
-            do {
-                guard let binding = try db.query("SELECT * FROM rt_workspace_binding WHERE binding=?", [row.required("run")]).first,
-                      try checkGrant(binding, lookup: lookup).identity == identity else { throw QueueError.denied }
-            } catch QueueError.denied {
-                return try notSubmitted(row, state: "denied", reason: "grant_denied")
+            // Accounts and binding revocation use this database. Check both principals and the destination
+            // in one transaction after registry preflight, immediately before the irreversible submission.
+            let denial: String? = try db.transaction {
+                do { try authorize(origin, row.required("team"), "messages:send", generation: row.required("membership")) }
+                catch QueueError.denied { return "origin_denied" }
+                guard let binding = try db.query("SELECT * FROM rt_workspace_binding WHERE binding=?", [row.required("run")]).first
+                else { return "grant_denied" }
+                do {
+                    return try checkGrant(binding, lookup: lookup).identity == identity ? nil : "grant_denied"
+                } catch QueueError.denied { return "grant_denied" }
             }
+            if let denial { return try notSubmitted(row, state: "denied", reason: denial) }
+        } else {
+            do { try authorize(origin, row.required("team"), "messages:send", generation: row.required("membership")) }
+            catch QueueError.denied { return try notSubmitted(row, state: "denied", reason: "origin_denied") }
         }
         guard let capabilities else { return try notSubmitted(row, state: "blocked", reason: "adapter_unavailable") }
         guard capabilities.contains(capability) else { return try notSubmitted(row, state: "blocked", reason: "unsupported_capability") }
