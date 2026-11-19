@@ -91,6 +91,31 @@ struct CoordinatorClientTests {
         }
     }
 
+    @Test func listsConnectedRoutinesAndUsesGETToReadTheReceipt() async throws {
+        let endpoint = try CoordinatorEndpoint("https://solo.example")
+        let api = SoloRoutineClient(client: client(), endpoint: endpoint,
+                                    credential: .init(clientID: "fixture-client", token: "fixture-bearer"))
+        #expect(try await api.routines().map(\.id) == ["demo"])
+        let receipt = try await api.submit(routineID: "demo", taskID: soloFixtureTaskID, text: "  fixture input\n")
+        #expect(receipt == SoloTaskReceipt(taskID: soloFixtureTaskID, state: .queued))
+        #expect(try await api.status(routineID: "demo", taskID: receipt.taskID).state == .accepted)
+
+        await #expect(throws: CoordinatorError.unexpectedResponse) {
+            try await api.status(routineID: "../demo", taskID: receipt.taskID)
+        }
+        await #expect(throws: CoordinatorError.unexpectedResponse) {
+            try await api.submit(routineID: "demo", taskID: receipt.taskID.uppercased(), text: "fixture")
+        }
+    }
+
+    @Test(arguments: [SoloTaskState.rejected, .uncertain, .denied, .blocked])
+    func readsSoloOutcomeWithoutReposting(state: SoloTaskState) async throws {
+        let endpoint = try CoordinatorEndpoint("https://\(state.rawValue).example")
+        let api = SoloRoutineClient(client: client(), endpoint: endpoint,
+                                    credential: .init(clientID: "fixture-client", token: "fixture-bearer"))
+        #expect(try await api.status(routineID: "demo", taskID: soloFixtureTaskID).state == state)
+    }
+
     @Test(arguments: [
         ("http-error", CoordinatorError.httpStatus(503)),
         ("invalid", CoordinatorError.unexpectedResponse),
@@ -111,6 +136,8 @@ struct CoordinatorClientTests {
     }
 }
 
+private let soloFixtureTaskID = "01234567-abcd-4567-89ab-0123456789ab"
+
 private final class StatusURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -124,6 +151,24 @@ private final class StatusURLProtocol: URLProtocol, @unchecked Sendable {
         }
         let authorization = request.value(forHTTPHeaderField: "Authorization")
         switch url.path {
+        case "/v1/solo/routines" where request.httpMethod == "GET" && authorization == "Bearer fixture-bearer":
+            respond(200, #"{"routines":[{"routine_id":"demo","provider":"grok-bot"},{"routine_id":"../other","provider":"grok-bot"},{"routine_id":"fixture-other","provider":"other"}]}"#, url: url)
+            return
+        case "/v1/solo/routines/demo/tasks" where request.httpMethod == "POST" && authorization == "Bearer fixture-bearer"
+            && request.value(forHTTPHeaderField: "Content-Type") == "application/json":
+            let fields: NSDictionary = ["task_id": soloFixtureTaskID, "payload": ["text": "  fixture input\n"]]
+            guard let body = requestBody(), let input = try? JSONSerialization.jsonObject(with: body) as? NSDictionary,
+                  input == fields else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+            respond(202, soloSnapshot(state: "queued"), url: url)
+            return
+        case "/v1/solo/routines/demo/tasks/\(soloFixtureTaskID)"
+            where request.httpMethod == "GET" && authorization == "Bearer fixture-bearer":
+            let state = url.host == "solo.example" ? "accepted" : url.host?.split(separator: ".").first.map(String.init) ?? ""
+            respond(200, soloSnapshot(state: state), url: url)
+            return
         case "/v1/reference-teams" where request.httpMethod == "GET" && authorization == "Bearer fixture-bearer":
             respond(200, #"{"teams":[{"teamID":"0123456789abcdef0123456789abcdef","mode":"reference","assistants":["lead","peer"],"runState":"running","turnLimit":12,"turnsUsed":0}]}"#, url: url)
             return
@@ -173,6 +218,10 @@ private final class StatusURLProtocol: URLProtocol, @unchecked Sendable {
         default: (200, "{}")
         }
         respond(code, body, url: url)
+    }
+
+    private func soloSnapshot(state: String) -> String {
+        #"{"task_id":"\#(soloFixtureTaskID)","routine_id":"demo","state":"\#(state)","native_result_available":false,"result":null}"#
     }
 
     private func requestBody() -> Data? {

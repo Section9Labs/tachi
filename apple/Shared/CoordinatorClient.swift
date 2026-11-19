@@ -147,7 +147,8 @@ final class CoordinatorClient: Sendable {
     func authenticated<Response: Decodable>(
         url: URL,
         credential: CoordinatorCredential,
-        body: Data? = nil
+        body: Data? = nil,
+        expecting statusCode: Int = 200
     ) async throws -> Response {
         guard credential.isValid else { throw CoordinatorError.unexpectedResponse }
         var request = makeRequest(url: url, method: body == nil ? "GET" : "POST")
@@ -157,7 +158,7 @@ final class CoordinatorClient: Sendable {
             request.httpBody = body
         }
         do {
-            return try await send(request, expecting: 200)
+            return try await send(request, expecting: statusCode)
         } catch CoordinatorError.httpStatus(401) {
             throw CoordinatorError.unauthorized
         }
