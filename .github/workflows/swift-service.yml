@@ -72,7 +72,9 @@ jobs:
           git archive 10ee249 | tar -x -C "$legacy"
           python3 qa/swift_service_parity.py pairing --legacy-root "$legacy"
           python3 qa/swift_service_parity.py reference-teams
-          python3 qa/swift_service_parity.py solo
+          python3 -W error qa/enrollment_http.py --service-root . \
+            --coordinator "$(swift build --show-bin-path)/tachi-coordinator" \
+            --accounts "$(swift build --package-path Packages/TachiAccounts --show-bin-path)/tachi-accounts"
           python3 qa/swift_service_parity.py workspaces
           python3 qa/swift_service_parity.py artifacts
           python3 qa/swift_service_parity.py assignments
