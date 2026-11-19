@@ -61,3 +61,19 @@ The command creates a new owner-readable file (mode 0600) and writes nothing to 
 - `list_clients(human_id)` lists that human's active client IDs. `revoke_client(human_id, client_id)` removes one client. Both methods are operator-only. CLI equivalents are `list-clients --db … --human-id …` and `revoke-client --db … --human-id … --client-id …`. The next authentication and dispatch recheck fail for that client, including on a separate store connection.
 
 Client tokens are independent of host credentials. Local bootstrap and revocation are available through the CLI. The lead owns HTTP redemption, bearer handling and resource enforcement at the coordinator entry points.
+
+### Team membership
+
+`AccountStore` owns the human roster. The coordinator supplies the authenticated human and client IDs to each mutation. The queue owns runs, assistant addresses, and resource-specific access.
+
+| Method | Result |
+| --- | --- |
+| `create_team(human_id, client_id, team_id)` | A client with `teams:manage` creates an unused team ID and its sole owner in one transaction. |
+| `invite_member(human_id, client_id, team_id, recipient_id)` | The owner with `teams:manage` issues a five-minute invitation for one specific human. Reissuing replaces the pending invitation. Revoking the issuing client withdraws its outstanding invitations. |
+| `accept_invitation(human_id, client_id, invitation)` | A current client for the invited human consumes the invitation and receives a `TeamMembership` with role `member`. Acceptance preserves the client's existing scopes. |
+| `revoke_member(human_id, client_id, team_id, recipient_id)` | The owner with `teams:manage` withdraws a pending invitation or removes membership in one transaction. The owner role is retained. |
+| `authorize_team(human_id, client_id, team_id, scope)` | Checks current client scope and current team role. Returns `owner` or `member`. Only owners may use `teams:manage` within the team. |
+| `authorize_membership(human_id, client_id, team_id, scope, *, membership_id=None)` | Also returns the unique ID for this period of membership. Supplying an ID requires an exact match. |
+| `team_membership(team_id, human_id)` and `team_role(team_id, human_id)` | Trusted recipient lookups return the current membership or role, respectively, or `None`. |
+
+At ingress, capture the originating human, client and membership ID with a pending turn. Before each dispatch, including an assistant handoff, pass that membership ID to `authorize_membership`. Removal immediately denies new checks, and rejoining creates a fresh ID. For human DMs the queue can bind recipient access to the recipient's membership ID as well. Room history, DMs, provider accounts, assistant bindings, and artifacts each require their own resource checks. Device and folder grants remain host-specific. Effects already submitted may require reconciliation.
