@@ -9,12 +9,13 @@ struct CoordinatorAccountView: View {
     @State private var accountLabel = "Default"
     @State private var invitation = ""
     @State private var phase = Phase.unchecked
+    @State private var showsTeams = false
 
     private enum Phase {
         case unchecked
         case working
         case unpaired
-        case paired(CoordinatorAccount)
+        case paired(CoordinatorAccount, CoordinatorCredential)
         case failed(String)
 
         var isWorking: Bool {
@@ -69,10 +70,23 @@ struct CoordinatorAccountView: View {
             accountStatus
                 .accessibilityElement(children: .combine)
                 .accessibilityIdentifier("coordinator-account-status")
+
+            if case .paired(let account, _) = phase, account.scopes.contains("sessions:read") {
+                Button("Reference Teams") { showsTeams = true }
+                    .buttonStyle(.borderedProminent)
+            }
         }
         .task {
             accountLabel = savedLabel
             await checkAccount()
+        }
+        .sheet(isPresented: $showsTeams, onDismiss: { Task { await checkAccount() } }) {
+            if case .paired(let account, let credential) = phase {
+                ReferenceTeamsView(
+                    api: ReferenceTeamClient(client: client, endpoint: endpoint, credential: credential),
+                    account: account
+                )
+            }
         }
     }
 
@@ -95,7 +109,7 @@ struct CoordinatorAccountView: View {
         case .unpaired:
             Text("This label is ready for an invitation.")
                 .foregroundStyle(.secondary)
-        case .paired(let account):
+        case .paired(let account, _):
             VStack(alignment: .leading, spacing: 4) {
                 Label("Account connected", systemImage: "person.crop.circle.badge.checkmark")
                     .font(.headline)
@@ -153,7 +167,7 @@ struct CoordinatorAccountView: View {
         do {
             let account = try await client.account(at: endpoint, credential: credential)
             try Task.checkCancellation()
-            phase = .paired(account)
+            phase = .paired(account, credential)
         } catch CoordinatorError.unauthorized {
             try Task.checkCancellation()
             try await store.remove(origin: endpoint.baseURL, account: label)

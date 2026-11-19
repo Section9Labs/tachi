@@ -51,7 +51,7 @@ enum CoordinatorError: LocalizedError, Equatable {
     }
 }
 
-struct CoordinatorEndpoint {
+struct CoordinatorEndpoint: Sendable {
     static let localDevelopmentURL = "http://127.0.0.1:8743"
 
     static var allowsLocalHTTP: Bool {
@@ -137,19 +137,30 @@ final class CoordinatorClient: Sendable {
     }
 
     func account(at endpoint: CoordinatorEndpoint, credential: CoordinatorCredential) async throws -> CoordinatorAccount {
-        guard credential.isValid else { throw CoordinatorError.unexpectedResponse }
-        var request = makeRequest(url: endpoint.route("v1/client/me"), method: "GET")
-        request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
-        let account: CoordinatorAccount
-        do {
-            account = try await send(request, expecting: 200)
-        } catch CoordinatorError.httpStatus(401) {
-            throw CoordinatorError.unauthorized
-        }
+        let account: CoordinatorAccount = try await authenticated(url: endpoint.route("v1/client/me"), credential: credential)
         guard !account.humanID.isEmpty, account.clientID == credential.clientID else {
             throw CoordinatorError.unexpectedResponse
         }
         return account
+    }
+
+    func authenticated<Response: Decodable>(
+        url: URL,
+        credential: CoordinatorCredential,
+        body: Data? = nil
+    ) async throws -> Response {
+        guard credential.isValid else { throw CoordinatorError.unexpectedResponse }
+        var request = makeRequest(url: url, method: body == nil ? "GET" : "POST")
+        request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = body
+        }
+        do {
+            return try await send(request, expecting: 200)
+        } catch CoordinatorError.httpStatus(401) {
+            throw CoordinatorError.unauthorized
+        }
     }
 
     private func makeRequest(url: URL, method: String) -> URLRequest {

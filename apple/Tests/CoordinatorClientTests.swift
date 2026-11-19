@@ -76,6 +76,21 @@ struct CoordinatorClientTests {
         }
     }
 
+    @Test func usesStableMessageIDForAuthenticatedReferenceSends() async throws {
+        let endpoint = try CoordinatorEndpoint("https://teams.example")
+        let api = ReferenceTeamClient(client: client(), endpoint: endpoint,
+                                      credential: CoordinatorCredential(clientID: "fixture-client", token: "fixture-bearer"))
+        let teams = try await api.teams()
+        let team = try #require(teams.first)
+        #expect(team.teamID == "0123456789abcdef0123456789abcdef")
+        let draft = ReferenceDraft(messageID: "client-stable-id", text: "test", audience: .room, mentions: [.lead], replyTo: nil)
+        try await api.send(draft, teamID: team.id)
+        try await api.send(draft, teamID: team.id)
+        await #expect(throws: CoordinatorError.unexpectedResponse) {
+            try await api.send(draft, teamID: "../status")
+        }
+    }
+
     @Test(arguments: [
         ("http-error", CoordinatorError.httpStatus(503)),
         ("invalid", CoordinatorError.unexpectedResponse),
@@ -109,6 +124,19 @@ private final class StatusURLProtocol: URLProtocol, @unchecked Sendable {
         }
         let authorization = request.value(forHTTPHeaderField: "Authorization")
         switch url.path {
+        case "/v1/reference-teams" where request.httpMethod == "GET" && authorization == "Bearer fixture-bearer":
+            respond(200, #"{"teams":[{"teamID":"0123456789abcdef0123456789abcdef","mode":"reference","assistants":["lead","peer"],"runState":"running","turnLimit":12,"turnsUsed":0}]}"#, url: url)
+            return
+        case "/v1/reference-teams/0123456789abcdef0123456789abcdef/messages"
+            where request.httpMethod == "POST" && authorization == "Bearer fixture-bearer"
+            && request.value(forHTTPHeaderField: "Content-Type") == "application/json":
+            guard let body = requestBody(), let draft = try? JSONDecoder().decode(ReferenceDraft.self, from: body),
+                  draft.messageID == "client-stable-id", draft.audience == .room, draft.mentions == [.lead] else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+            respond(200, #"{"messageID":"client-stable-id"}"#, url: url)
+            return
         case "/v1/client/pair" where request.httpMethod == "POST" && authorization == nil
             && request.value(forHTTPHeaderField: "Content-Type") == "application/json":
             guard let body = requestBody(), let object = try? JSONDecoder().decode([String: String].self, from: body),
