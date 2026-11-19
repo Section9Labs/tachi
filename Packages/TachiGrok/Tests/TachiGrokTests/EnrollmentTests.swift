@@ -112,6 +112,26 @@ private func mode(of url: URL) throws -> mode_t {
     }
 }
 
+@Test func aNonRegularSecretFailsPromptly() throws {
+    let directory = enrollmentDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    _ = try provisionRoutineGrant(
+        humanID: "human-a",
+        issuedURL: "https://hooks.example.invalid/routine",
+        secret: "test-secret",
+        directory: directory
+    )
+    let secretURL = directory.appendingPathComponent("secret")
+    try FileManager.default.removeItem(at: secretURL)
+    #expect(secretURL.path.withCString { mkfifo($0, 0o600) } == 0)
+    #expect(secretURL.path.withCString { chmod($0, 0o600) } == 0)
+    let started = ContinuousClock.now
+    #expect(throws: GrokConnectorError.notSent) {
+        try loadRoutineGrant(humanID: "human-a", directory: directory)
+    }
+    #expect(ContinuousClock.now - started < .seconds(2))
+}
+
 @Test func symlinkSecretAndBilledDestinationAreRefused() throws {
     let directory = enrollmentDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }

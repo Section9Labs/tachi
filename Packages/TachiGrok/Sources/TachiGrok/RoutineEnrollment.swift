@@ -33,8 +33,8 @@ public struct RoutineEnrollment: Sendable, Equatable, CustomStringConvertible, C
 
 /// Write a private enrollment for `humanID`. The directory is mode 0700.
 /// `enrollment.json` records the human and the canonical destination. The `secret`
-/// file stores that destination, one LF, and then the bearer. The `secret` argument
-/// is the bearer only. Both files are mode 0600 and owned by the effective user.
+/// file stores the destination plus the bearer: the canonical destination, one LF,
+/// then the bearer. Both files are mode 0600 and owned by the effective user.
 /// This function does not send the routine.
 public func provisionRoutineGrant(
     humanID: String,
@@ -226,7 +226,7 @@ private func writeExclusive(_ url: URL, _ bytes: Data) throws {
 
 private func readPrivate(_ url: URL, maxBytes: Int) throws -> Data {
     let path = try absolutePath(url)
-    let fd = path.withCString { open($0, O_RDONLY | O_NOFOLLOW) }
+    let fd = path.withCString { open($0, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC) }
     if fd < 0 { throw GrokConnectorError.notSent }
     defer { _ = close(fd) }
     var info = stat()
