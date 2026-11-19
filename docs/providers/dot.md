@@ -46,6 +46,40 @@ python3 -m unittest discover -s tests -p 'test_dot*.py'
 
 The inspector projects allowlisted method names and counts. A new Dot-named declaration prompts a documentation review. Schema presence alone never grants a runtime capability.
 
+## Swift MCP endpoint for the first native tool call
+
+`Packages/TachiDot` contains a standalone Swift HTTP resource. Its public catalog advertises one OAuth-protected, read-only tool, `read_connection_sample`. On the first authorized call it materializes a random synthetic receipt for the configured Tachi owner and resource. The same trial returns the same receipt after restart. An operator can compare the value in ChatGPT with the local record. Use a fresh private trial directory for each acceptance run. The receipt contains no Dot, conversation, or task identifier.
+
+**Verified direction:** a synthetic MCP client reached the Swift resource over loopback. Public initialization and tool discovery succeeded. A denied call returned an MCP tool error carrying the OAuth linking challenge in both the response header and tool metadata. For an authorized call, the tool checked the grant with a synthetic introspection server and returned a receipt that matched independent disk readback. Restart preserved the receipt. Revoking the grant blocked subsequent access. Tachi also fetched OpenAI’s published OAuth client metadata anonymously and verified that its client identifier matched the document URL and that it listed redirect URIs. **Live provider status:** Tachi has no verified reachable gateway, installed workspace plugin, existing-Dot attachment, or native turn. [OpenAI client metadata](https://chatgpt.com/oauth/client.json)
+
+### Run the local trial
+
+From the repository root:
+
+```sh
+swift build --package-path Packages/TachiDot -Xswiftc -warnings-as-errors
+python3 Packages/TachiDot/Tests/probe.py Packages/TachiDot/.build/debug/tachi-dot-plugin
+```
+
+The probe launches the Swift binary and a loopback-only synthetic introspection service in a temporary directory, exercises HTTP discovery and tool calls, and restarts the binary. Python is a test client. The product executable runs in Swift. The `--local-fixture` switch requires literal loopback HTTP URLs for all three configured endpoints. Ordinary startup requires HTTPS URLs and binds the backend listener to IPv4 loopback.
+
+### Connect an authorized deployment
+
+1. **Operator:** Provide a reachable TLS gateway for `/mcp` and `/.well-known/oauth-protected-resource/mcp`, or a workspace-authorized Secure MCP Tunnel with a compatible OAuth resource and metadata route. Check reachability from the intended workspace. The operator also supplies an OAuth authorization server with S256 PKCE and one of ChatGPT’s supported client registration methods (CIMD, dynamic registration, or a predefined client). Allow the precise redirect URI displayed by ChatGPT. Grant only `sample.read` for this resource to the trial account. [Registration and OAuth requirements](https://developers.openai.com/plugins/build/auth)
+2. **Operator:** Set the configuration below and run `tachi-dot-plugin` behind that gateway. The resource discovers no credentials from other applications. It introspects the bearer token on every tool call and fails closed when the issuer is unavailable. Public catalog discovery does not create a receipt.
+3. **Workspace owner or authorized member:** In ChatGPT Plugins, choose **+ → Add custom MCP server**, enter the authorized endpoint or select the approved tunnel, configure OAuth, review the permissions, and create and install the plugin. Workspace policy must allow it in the selected Dot. Complete normal Tachi authorization when ChatGPT prompts. [Connect and test a plugin](https://developers.openai.com/plugins/deploy/connect-chatgpt)
+4. **Shortest native trial after setup:** Open the existing Dot, select the Tachi plugin, and ask once, **“Use Tachi to read my connection sample and tell me the receipt.”** Confirm the visible tool invocation and compare its return to the fresh operator record. This proves a Dot-initiated tool call only if observed in that Dot. It consumes a provider turn; confirm the account’s available included quota before submitting. No provider quota balance was measured in the local trial.
+
+| Configuration | Operator-supplied value |
+| --- | --- |
+| `TACHI_DOT_RESOURCE` | Canonical HTTPS MCP resource ending in the exact path `/mcp`. The authorization server must issue this audience. |
+| `TACHI_DOT_ISSUER`, `TACHI_DOT_INTROSPECTION` | Exact HTTPS issuer identifier and its operator-trusted RFC 7662 endpoint. Configure the authorization server to return `active`, bearer `token_type`, `iss`, `aud`, `sub`, `exp`, and `scope`. The resource also checks `nbf` when present. |
+| `TACHI_DOT_INTROSPECTION_BASIC` | Base64 credential for the resource server’s HTTP Basic authentication to introspection, supplied through protected service configuration. |
+| `TACHI_DOT_SUBJECT`, `TACHI_DOT_RECEIPT_FILE` | Authorized Tachi subject for this single-owner trial and a new receipt path inside an operator-owned mode-0700 directory. Keep the record private. |
+| `TACHI_DOT_PORT` | Local TCP port (default 8745). The process accepts server-to-server calls. It rejects requests with a browser Origin header. |
+
+Only the TLS gateway or authorized tunnel can make this backend reachable by ChatGPT. No external endpoint or registration was created. The Swift endpoint advertises tools only. The event subscription prototype below is a separate local test. Native conversation creation, Tachi-initiated dispatch, a provider return after reconnect, and team handoff still require independent evidence.
+
 ## Experimental plugin attachment
 
 **Verified locally.** The plugin application layer in `tachi/providers/dot/claim_check.py` builds event and tool catalogs, signs webhook bytes, and correlates a synthetic result to a verified subscription lease in SQLite. The fixture supplies an authenticated-owner context and echoes the signed callback challenge in memory. It exercises the same tool handlers a plugin gateway would call. Run `python3 -m unittest discover -s tests -p 'test_dot_claim_check.py' -v`.
