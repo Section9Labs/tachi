@@ -107,7 +107,7 @@ struct SoloRoutineView: View {
                     }
                     .disabled(work != .ready)
                 }
-                if canSend && receipt.state != .queued {
+                if canSend && receipt.state.canStartAnotherTask {
                     Button("Start Another Task") {
                         self.receipt = nil
                         errorMessage = nil

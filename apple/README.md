@@ -24,7 +24,7 @@ For a simulator pairing test, build with Xcode’s default local simulator signi
 
 From a paired coordinator account, choose **Solo Assistants** and open a connected routine. Listing routines and checking task status require `sessions:read`. Sending a task requires `messages:send`. The coordinator operator connects the routine to the account.
 
-Enter the task input and choose **Send Task**. Tachi sends the input as the saved routine’s `text` payload field and remembers the task ID on this device. Open **Check Status** to read the receipt again. For an accepted routine, check Grok Bot for the result. If submission is unconfirmed, check Grok Bot before starting another task.
+Enter the task input and choose **Send Task**. Tachi sends the input as the saved routine’s `text` payload field and remembers the task ID on this device. Open **Check Status** to read the receipt again. For an accepted routine, check Grok Bot for the result. If submission is unconfirmed, check Grok Bot before starting another task. An explicit rejection offers **Start Another Task**.
 
 ## Try a reference team
 

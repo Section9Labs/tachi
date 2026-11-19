@@ -16,6 +16,8 @@ struct SoloRoutine: Decodable, Identifiable, Sendable {
 
 enum SoloTaskState: String, Codable, Sendable {
     case queued, accepted, rejected, uncertain, denied, blocked
+
+    var canStartAnotherTask: Bool { self == .rejected }
 }
 
 struct SoloTaskReceipt: Codable, Equatable, Sendable {

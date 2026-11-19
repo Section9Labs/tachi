@@ -5,6 +5,12 @@ actor SoloReceiptStore {
         let origin: URL
         let humanID: String
         let routineID: String
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.origin == rhs.origin
+                && lhs.humanID.utf8.elementsEqual(rhs.humanID.utf8)
+                && lhs.routineID == rhs.routineID
+        }
     }
 
     private struct Entry: Codable {
