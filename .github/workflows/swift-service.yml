@@ -55,6 +55,8 @@ jobs:
         run: apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev libcurl4-openssl-dev libssl-dev python3
       - name: Test runtime
         run: swift test --package-path Packages/TachiRuntime
+      - name: Test external Swift adapter onboarding
+        run: swift test --package-path Examples/AdapterOnboarding -Xswiftc -warnings-as-errors
       - name: Test accounts
         run: swift test --package-path Packages/TachiAccounts
       - name: Test host transport
