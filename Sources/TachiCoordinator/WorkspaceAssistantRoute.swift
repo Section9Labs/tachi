@@ -69,6 +69,15 @@ struct WorkspaceAssistantRoute {
                 _ = try input(body, [])
                 try await queue.revokeWorkspaceAssistant(team: team, principal: principal, id: String(tail[0]))
                 return try encoded(.ok, ["revoked": true])
+            case (.GET, "assistants", 2) where tail[1] == "dispatch" && WorkspaceRoute.validID(String(tail[0])):
+                let id = String(tail[0])
+                let paused = try await queue.workspaceDispatchPaused(team: team, principal: principal, id: id)
+                return try dispatchSummary(id, paused: paused)
+            case (.POST, "assistants", 2) where ["pause", "resume"].contains(tail[1]) && WorkspaceRoute.validID(String(tail[0])):
+                _ = try input(body, [])
+                let id = String(tail[0]), paused = tail[1] == "pause"
+                try await queue.setWorkspaceDispatchPaused(team: team, principal: principal, id: id, paused: paused)
+                return try dispatchSummary(id, paused: paused)
             case (.POST, "assignments", 0):
                 let fields = try input(body, ["assignment_id","assistant_id","text"])
                 guard case let .string(id) = fields["assignment_id"], case let .string(assistant) = fields["assistant_id"],
@@ -97,5 +106,9 @@ struct WorkspaceAssistantRoute {
 
     private func encoded(_ status: HTTPResponseStatus, _ value: some Encodable) throws -> Reply {
         try Reply(status, JSONEncoder().encode(value))
+    }
+
+    private func dispatchSummary(_ id: String, paused: Bool) throws -> Reply {
+        try encoded(.ok, ["assistant_id": JSONValue.string(id), "dispatch_paused": .bool(paused)])
     }
 }
