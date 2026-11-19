@@ -10,7 +10,8 @@ void webhook_transfer_destroy(webhook_transfer *transfer);
 void webhook_transfer_cancel(webhook_transfer *transfer);
 
 /* One POST. Returns 0 and writes status_out when a final status line was
-   parsed. Returns 1 when the transfer ended with no final status. Never
+   parsed. Returns 1 for an unobserved submission, or 2 if the transfer
+   never started. Never
    formats the URL, path, or authorization into an error string. */
 int webhook_transfer_perform(
     webhook_transfer *transfer,

@@ -174,6 +174,7 @@ int webhook_transfer_perform(
     struct curl_slist *headers = NULL;
     char *auth_line = authorization_header(authorization);
     const char *payload = body != NULL ? body : "";
+    int attempted = 0;
     int observed = 0;
     if (easy == NULL || multi == NULL || auth_line == NULL) {
         goto done;
@@ -215,20 +216,18 @@ int webhook_transfer_perform(
     curl_easy_setopt(easy, CURLOPT_PROTOCOLS_STR, "http,https");
     curl_easy_setopt(easy, CURLOPT_REDIR_PROTOCOLS_STR, "");
 
-    curl_multi_add_handle(multi, easy);
+    if (curl_multi_add_handle(multi, easy) != CURLM_OK) goto done;
     struct timespec started;
     clock_gettime(CLOCK_MONOTONIC, &started);
     for (;;) {
+        if (atomic_load(&transfer->cancel)) break;
+        attempted = 1;
         int running = 0;
         CURLMcode code = curl_multi_perform(multi, &running);
         if (transfer->have_status) {
             break;
         }
         if (code != CURLM_OK) {
-            break;
-        }
-        if (atomic_load(&transfer->cancel)) {
-            curl_multi_perform(multi, &running);
             break;
         }
         if (running == 0 || elapsed_ms(&started) > timeout_ms + 250L) {
@@ -252,5 +251,6 @@ done:
     }
     curl_slist_free_all(headers);
     free(auth_line);
-    return observed ? 0 : 1;
+    if (observed) return 0;
+    return attempted ? 1 : 2;
 }

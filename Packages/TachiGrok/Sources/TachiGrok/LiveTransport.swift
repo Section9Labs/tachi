@@ -5,10 +5,13 @@ import Foundation
 /// One POST. A final status line settles the call. The body is not read.
 /// Redirects and environment proxies are refused. The continuation resumes once.
 func liveWebhookTransport(_ call: WebhookCall, _ timeout: TimeInterval) async throws -> HttpResult {
-    let job = WebhookTransferJob()
+    let job = try WebhookTransferJob()
     return try await withTaskCancellationHandler {
-        try await withCheckedThrowingContinuation { continuation in
-            job.start(call, timeout: timeout, continuation: continuation)
+        guard !Task.isCancelled else { throw GrokConnectorError.notSent }
+        return try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                continuation.resume(with: job.execute(call, timeout))
+            }
         }
     } onCancel: {
         job.cancel()
@@ -20,53 +23,21 @@ func armLiveWebhookCancelAfterStatus(_ enabled: Bool) {
     webhook_transfer_arm_cancel_after_status(enabled ? 1 : 0)
 }
 
+/// Both closures retain this owner. Only the worker drives libcurl; cancellation
+/// sets an atomic flag on the same allocation.
 private final class WebhookTransferJob: @unchecked Sendable {
-    private let lock = NSLock()
-    private var transfer: OpaquePointer?
-    private var continuation: CheckedContinuation<HttpResult, Error>?
-    private var cancelRequested = false
-    private var settled = false
+    private let transfer: OpaquePointer
 
-    func start(
-        _ call: WebhookCall,
-        timeout: TimeInterval,
-        continuation: CheckedContinuation<HttpResult, Error>
-    ) {
-        guard let transfer = webhook_transfer_create() else {
-            continuation.resume(throwing: GrokConnectorError.submissionUnobserved)
-            return
-        }
-        lock.lock()
+    init() throws {
+        guard let transfer = webhook_transfer_create() else { throw GrokConnectorError.notSent }
         self.transfer = transfer
-        self.continuation = continuation
-        let alreadyCancelled = cancelRequested
-        lock.unlock()
-        if alreadyCancelled {
-            webhook_transfer_cancel(transfer)
-        }
-        DispatchQueue.global(qos: .userInitiated).async { [self] in
-            let result = execute(call, timeout)
-            finish(result)
-        }
     }
 
-    func cancel() {
-        lock.lock()
-        cancelRequested = true
-        let transfer = self.transfer
-        lock.unlock()
-        if let transfer {
-            webhook_transfer_cancel(transfer)
-        }
-    }
+    deinit { webhook_transfer_destroy(transfer) }
 
-    private func execute(_ call: WebhookCall, _ timeout: TimeInterval) -> Result<HttpResult, Error> {
-        lock.lock()
-        let transfer = self.transfer
-        lock.unlock()
-        guard let transfer else {
-            return .failure(GrokConnectorError.submissionUnobserved)
-        }
+    func cancel() { webhook_transfer_cancel(transfer) }
+
+    func execute(_ call: WebhookCall, _ timeout: TimeInterval) -> Result<HttpResult, Error> {
         var status = Int32(0)
         let code: Int32 = call.url.withCString { url in
             call.authorization.withCString { authorization in
@@ -83,27 +54,12 @@ private final class WebhookTransferJob: @unchecked Sendable {
                 }
             }
         }
+        if code == 2 { return .failure(GrokConnectorError.notSent) }
         // A status already parsed wins over a cancel or a body abort.
         guard code == 0, (200...599).contains(Int(status)) else {
             return .failure(GrokConnectorError.submissionUnobserved)
         }
         return .success(HttpResult(status: Int(status)))
-    }
-
-    private func finish(_ result: Result<HttpResult, Error>) {
-        lock.lock()
-        let continuation = self.continuation
-        let transfer = self.transfer
-        self.continuation = nil
-        self.transfer = nil
-        let first = !settled
-        settled = true
-        lock.unlock()
-        guard first else { return }
-        continuation?.resume(with: result)
-        if let transfer {
-            webhook_transfer_destroy(transfer)
-        }
     }
 }
 

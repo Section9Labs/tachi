@@ -105,6 +105,17 @@ struct LiveWebhookTransportSuite {
         #expect(server.currentHits().count == 1)
     }
 
+    @Test func cancellationBeforeDispatchSendsNothing() async throws {
+        let server = try startServer(mode: "hold", status: 200, hold: hold)
+        defer { server.stop() }
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await post(server)
+        }
+        await #expect(throws: GrokConnectorError.notSent) { try await task.value }
+        #expect(server.currentHits().isEmpty)
+    }
+
     @Test func cancelBeforeStatusIsUnobservedOnce() async throws {
         let server = try startServer(mode: "silent", status: 200, hold: hold)
         defer { server.stop() }

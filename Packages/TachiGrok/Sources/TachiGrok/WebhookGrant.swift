@@ -95,7 +95,7 @@ private let refusedHosts: Set<String> = ["api.x.ai", "mtls.api.x.ai", "api2.curs
 private let loopbackNames: Set<String> = ["localhost"]
 
 public func bindWebhook(_ url: String, secret: String, allowLoopback: Bool = false) throws -> WebhookGrant {
-    if secret.isEmpty || secret.contains(where: \.isWhitespace) {
+    if secret.isEmpty || secret.utf8.contains(0) || secret.contains(where: \.isWhitespace) {
         throw GrokConnectorError.notSent
     }
     let parsed = try parseIssuedURL(url)
@@ -171,7 +171,7 @@ private struct IssuedURL {
 }
 
 private func parseIssuedURL(_ url: String) throws -> IssuedURL {
-    if url.contains(where: \.isWhitespace) || url.contains("?") || url.contains("#") {
+    if url.utf8.contains(0) || url.contains(where: \.isWhitespace) || url.contains("?") || url.contains("#") {
         throw GrokConnectorError.notSent
     }
     guard let marker = url.range(of: "://") else { throw GrokConnectorError.notSent }
