@@ -9,6 +9,12 @@ struct CoordinatorClientTests {
         #expect(endpoint.statusURL.absoluteString == "https://coordinator.example:9443/v1/status")
     }
 
+    @Test func equivalentHTTPSOriginsUseOneKeychainService() throws {
+        let first = try CoordinatorEndpoint("HTTPS://COORDINATOR.example:443/")
+        let second = try CoordinatorEndpoint("https://coordinator.example")
+        #expect(first.baseURL == second.baseURL)
+    }
+
     @Test(arguments: [
         "coordinator.example", "https://", "ftp://coordinator.example", "https://coordinator.example:65536",
         "https://user:secret@coordinator.example", "https://coordinator.example/api",
@@ -33,6 +39,41 @@ struct CoordinatorClientTests {
         #expect(status.service == "tachi")
         #expect(status.protocolVersion == 1)
         #expect(status.status == "ready")
+    }
+
+    @Test func redeemsInvitationAndChecksBoundAccount() async throws {
+        let endpoint = try CoordinatorEndpoint("https://pair.example")
+        let client = client()
+        let credential = try await client.pair(at: endpoint, invitation: "fixture-invitation")
+        let account = try await client.account(at: endpoint, credential: credential)
+        #expect(account.humanID == "fixture-human")
+        #expect(account.clientID == "fixture-client")
+        #expect(account.scopes == ["sessions:read"])
+    }
+
+    @Test func distinguishesRejectedInvitationAndRevokedCredential() async throws {
+        let endpoint = try CoordinatorEndpoint("https://denied.example")
+        let client = client()
+        await #expect(throws: CoordinatorError.invitationRejected) {
+            try await client.pair(at: endpoint, invitation: "fixture-invitation")
+        }
+        let credential = CoordinatorCredential(clientID: "fixture-client", token: "fixture-bearer")
+        await #expect(throws: CoordinatorError.unauthorized) {
+            try await client.account(at: endpoint, credential: credential)
+        }
+    }
+
+    @Test func rejectsAnUnexpectedClientIdentityAndMalformedBearer() async throws {
+        let endpoint = try CoordinatorEndpoint("https://pair.example")
+        let client = client()
+        let wrongClient = CoordinatorCredential(clientID: "other-client", token: "fixture-bearer")
+        let malformed = CoordinatorCredential(clientID: "fixture-client", token: "fixture-bearer\r\n")
+        await #expect(throws: CoordinatorError.unexpectedResponse) {
+            try await client.account(at: endpoint, credential: wrongClient)
+        }
+        await #expect(throws: CoordinatorError.unexpectedResponse) {
+            try await client.account(at: endpoint, credential: malformed)
+        }
     }
 
     @Test(arguments: [
@@ -60,11 +101,31 @@ private final class StatusURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        guard let url = request.url, url.path == "/v1/status",
-              request.httpMethod == "GET",
+        guard let url = request.url, url.query == nil,
               request.value(forHTTPHeaderField: "Accept") == "application/json",
-              request.value(forHTTPHeaderField: "Authorization") == nil,
               request.value(forHTTPHeaderField: "Cookie") == nil else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        let authorization = request.value(forHTTPHeaderField: "Authorization")
+        switch url.path {
+        case "/v1/client/pair" where request.httpMethod == "POST" && authorization == nil
+            && request.value(forHTTPHeaderField: "Content-Type") == "application/json":
+            guard let body = requestBody(), let object = try? JSONDecoder().decode([String: String].self, from: body),
+                  object == ["invitation": "fixture-invitation"] else {
+                client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+                return
+            }
+            if url.host == "denied.example" { respond(401, "{}", url: url) }
+            else { respond(201, #"{"clientID":"fixture-client","token":"fixture-bearer"}"#, url: url) }
+            return
+        case "/v1/client/me" where request.httpMethod == "GET" && authorization == "Bearer fixture-bearer":
+            if url.host == "denied.example" { respond(401, "{}", url: url) }
+            else { respond(200, #"{"humanID":"fixture-human","clientID":"fixture-client","scopes":["sessions:read"]}"#, url: url) }
+            return
+        case "/v1/status" where request.httpMethod == "GET" && authorization == nil:
+            break
+        default:
             client?.urlProtocol(self, didFailWithError: URLError(.badURL))
             return
         }
@@ -83,6 +144,25 @@ private final class StatusURLProtocol: URLProtocol, @unchecked Sendable {
         case "http-error.example": (503, "")
         default: (200, "{}")
         }
+        respond(code, body, url: url)
+    }
+
+    private func requestBody() -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var body = Data()
+        var buffer = [UInt8](repeating: 0, count: 256)
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count < 0 { return nil }
+            if count == 0 { return body }
+            body.append(contentsOf: buffer.prefix(count))
+        }
+    }
+
+    private func respond(_ code: Int, _ body: String, url: URL) {
         let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: nil)!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data(body.utf8))

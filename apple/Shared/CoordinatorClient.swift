@@ -6,6 +6,21 @@ struct CoordinatorStatus: Decodable {
     let status: String
 }
 
+struct CoordinatorCredential: Codable, Sendable {
+    let clientID: String
+    let token: String
+
+    var isValid: Bool {
+        !clientID.isEmpty && token.range(of: #"\A[A-Za-z0-9._~+/-]+=*\z"#, options: .regularExpression) != nil
+    }
+}
+
+struct CoordinatorAccount: Decodable, Sendable {
+    let humanID: String
+    let clientID: String
+    let scopes: [String]
+}
+
 enum CoordinatorError: LocalizedError, Equatable {
     case invalidURL
     case requiresHTTPS
@@ -16,6 +31,8 @@ enum CoordinatorError: LocalizedError, Equatable {
     case httpStatus(Int)
     case unsupportedProtocol(Int)
     case notReady
+    case invitationRejected
+    case unauthorized
 
     var errorDescription: String? {
         switch self {
@@ -28,6 +45,8 @@ enum CoordinatorError: LocalizedError, Equatable {
         case .httpStatus(let code): "The coordinator returned HTTP \(code)."
         case .unsupportedProtocol(let version): "This app can’t use coordinator protocol version \(version)."
         case .notReady: "The coordinator is temporarily unavailable. Try again shortly."
+        case .invitationRejected: "This invitation was declined. Ask for a new invitation and try again."
+        case .unauthorized: "This device’s access expired or was revoked. Pair with a new invitation to reconnect."
         }
     }
 }
@@ -46,7 +65,7 @@ struct CoordinatorEndpoint {
     static var defaultURL: String { allowsLocalHTTP ? localDevelopmentURL : "" }
 
     let baseURL: URL
-    let statusURL: URL
+    var statusURL: URL { route("v1/status") }
 
     init(_ input: String, allowsLocalHTTP: Bool = Self.allowsLocalHTTP) throws {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -64,13 +83,16 @@ struct CoordinatorEndpoint {
         }
 
         components.scheme = scheme
+        components.host = host.lowercased()
+        if (scheme == "https" && components.port == 443) || (scheme == "http" && components.port == 80) {
+            components.port = nil
+        }
         components.path = ""
         guard let baseURL = components.url else { throw CoordinatorError.invalidURL }
-        components.path = "/v1/status"
-        guard let statusURL = components.url else { throw CoordinatorError.invalidURL }
         self.baseURL = baseURL
-        self.statusURL = statusURL
     }
+
+    func route(_ path: String) -> URL { baseURL.appendingPathComponent(path) }
 }
 
 final class CoordinatorClient: Sendable {
@@ -89,10 +111,55 @@ final class CoordinatorClient: Sendable {
     }
 
     func status(at endpoint: CoordinatorEndpoint) async throws -> CoordinatorStatus {
-        var request = URLRequest(url: endpoint.statusURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let request = makeRequest(url: endpoint.statusURL, method: "GET")
+        let status: CoordinatorStatus = try await send(request, expecting: 200)
+        guard status.service == "tachi" else { throw CoordinatorError.unexpectedResponse }
+        guard status.protocolVersion == 1 else { throw CoordinatorError.unsupportedProtocol(status.protocolVersion) }
+        guard status.status == "ready" else { throw CoordinatorError.notReady }
+        return status
+    }
 
+    func pair(at endpoint: CoordinatorEndpoint, invitation: String) async throws -> CoordinatorCredential {
+        struct Invitation: Encodable { let invitation: String }
+
+        var request = makeRequest(url: endpoint.route("v1/client/pair"), method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(Invitation(invitation: invitation))
+
+        let credential: CoordinatorCredential
+        do {
+            credential = try await send(request, expecting: 201)
+        } catch CoordinatorError.httpStatus(401) {
+            throw CoordinatorError.invitationRejected
+        }
+        guard credential.isValid else { throw CoordinatorError.unexpectedResponse }
+        return credential
+    }
+
+    func account(at endpoint: CoordinatorEndpoint, credential: CoordinatorCredential) async throws -> CoordinatorAccount {
+        guard credential.isValid else { throw CoordinatorError.unexpectedResponse }
+        var request = makeRequest(url: endpoint.route("v1/client/me"), method: "GET")
+        request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
+        let account: CoordinatorAccount
+        do {
+            account = try await send(request, expecting: 200)
+        } catch CoordinatorError.httpStatus(401) {
+            throw CoordinatorError.unauthorized
+        }
+        guard !account.humanID.isEmpty, account.clientID == credential.clientID else {
+            throw CoordinatorError.unexpectedResponse
+        }
+        return account
+    }
+
+    private func makeRequest(url: URL, method: String) -> URLRequest {
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
+        request.httpMethod = method
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        return request
+    }
+
+    private func send<Response: Decodable>(_ request: URLRequest, expecting code: Int) async throws -> Response {
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await session.data(for: request)
@@ -108,13 +175,11 @@ final class CoordinatorClient: Sendable {
         }
 
         guard let response = response as? HTTPURLResponse else { throw CoordinatorError.unexpectedResponse }
-        guard response.statusCode == 200 else { throw CoordinatorError.httpStatus(response.statusCode) }
-        guard let status = try? JSONDecoder().decode(CoordinatorStatus.self, from: data), status.service == "tachi" else {
+        guard response.statusCode == code else { throw CoordinatorError.httpStatus(response.statusCode) }
+        guard let value = try? JSONDecoder().decode(Response.self, from: data) else {
             throw CoordinatorError.unexpectedResponse
         }
-        guard status.protocolVersion == 1 else { throw CoordinatorError.unsupportedProtocol(status.protocolVersion) }
-        guard status.status == "ready" else { throw CoordinatorError.notReady }
-        return status
+        return value
     }
 }
 

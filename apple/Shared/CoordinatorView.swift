@@ -59,6 +59,12 @@ struct CoordinatorView: View {
                 connectionStatus
                     .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("connection-status")
+
+                if let endpoint = try? CoordinatorEndpoint(input), endpoint.baseURL.absoluteString == savedURL {
+                    Divider()
+                    CoordinatorAccountView(endpoint: endpoint, client: Self.client)
+                        .id(endpoint.baseURL)
+                }
             }
             .frame(maxWidth: 440, alignment: .leading)
             .padding(24)
