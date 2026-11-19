@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import TachiAccounts
+import TachiGrok
 import TachiRuntime
 @testable import TachiCoordinator
 
@@ -79,5 +80,24 @@ func reopenedSoloWorkerRechecksOriginAndCredential(rotateCredential: Bool) async
     try FileManager.default.createSymbolicLink(at: link, withDestinationURL: lab.file)
     await #expect(throws: SoloConfigurationError.self) {
         _ = try await SoloRoutines(path: lab.database, accounts: lab.accounts, config: link.path, fixture: true)
+    }
+}
+
+@Test func enrollmentDirectoryLoadsWithoutRewritingTheSecret() async throws {
+    let lab = try SoloLab()
+    defer { try? FileManager.default.removeItem(at: lab.folder) }
+    let directory = lab.folder.appendingPathComponent("enroll", isDirectory: true)
+    let secret = "directory-secret"
+    _ = try provisionRoutineGrant(humanID: "fixture-owner", issuedURL: "http://127.0.0.1:9/fixture",
+                                  secret: secret, directory: directory, allowLoopback: true)
+    let stored = try Data(contentsOf: directory.appendingPathComponent("secret"))
+    let service = try await SoloRoutines(path: lab.database, accounts: lab.accounts, directory: directory.path,
+                                         humanID: "fixture-owner", routineID: "sample", fixture: true)
+    #expect(service.list(try lab.client()) == [["provider": "grok-bot", "routine_id": "sample"]])
+    #expect(!FileManager.default.fileExists(atPath: lab.file.path))
+    #expect(try Data(contentsOf: directory.appendingPathComponent("secret")) == stored)
+    await #expect(throws: SoloConfigurationError.self) {
+        _ = try await SoloRoutines(path: lab.database, accounts: lab.accounts, directory: directory.path,
+                                   humanID: "other-human", routineID: "sample", fixture: true)
     }
 }

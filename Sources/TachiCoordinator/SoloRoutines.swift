@@ -11,6 +11,15 @@ import Darwin
 
 enum SoloConfigurationError: Error { case invalidConfiguration }
 
+/// The operator argument must already be absolute. A relative name, `.`, or `..` is rejected before URL resolution.
+private func enrollmentDirectoryURL(_ directory: String) throws -> URL {
+    let parts = directory.split(separator: "/", omittingEmptySubsequences: false)
+    guard directory.hasPrefix("/"), !parts.contains("."), !parts.contains("..") else {
+        throw SoloConfigurationError.invalidConfiguration
+    }
+    return URL(fileURLWithPath: directory)
+}
+
 private struct RoutineFile: Decodable {
     struct Entry: Decodable {
         let human_id, routine_id, webhook_url, webhook_secret: String
@@ -66,6 +75,23 @@ private struct Routine: Sendable {
         adapter = try GrokBotAdapter(identity: lane.identity, webhookURL: grant.destination(),
                                      webhookSecret: grant.secret, allowLoopback: fixture)
     }
+
+    init(humanID: String, routineID: String, grant: WebhookGrant, fixture: Bool) throws {
+        let id = routineID.utf8
+        let alphanumeric: (UInt8) -> Bool = { (48...57).contains($0) || (97...122).contains($0) }
+        guard let first = id.first, alphanumeric(first), id.count <= 64,
+              id.allSatisfy({ alphanumeric($0) || $0 == 45 || $0 == 95 }),
+              !humanID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !humanID.utf8.contains(0),
+              !fixture || (grant.scheme == "http" && grant.host == "127.0.0.1") else {
+            throw SoloConfigurationError.invalidConfiguration
+        }
+        human = humanID
+        alias = routineID
+        lane = try SoloLane(key: digest(human + "\0" + alias))
+        generation = digest(grant.destination() + "\0" + grant.secret)
+        adapter = try GrokBotAdapter(identity: lane.identity, grant: grant, allowLoopback: fixture)
+    }
 }
 
 private struct SoloAuthority: QueueAuthority {
@@ -92,7 +118,27 @@ struct SoloRoutines: Sendable {
     let registry: AdapterRegistry
 
     init(path: String, accounts: AccountStore, config: String, fixture: Bool) async throws {
-        routines = try RoutineFile.read(config).routines.map { try Routine($0, fixture: fixture) }
+        try await self.init(path: path, accounts: accounts,
+                            routines: try RoutineFile.read(config).routines.map { try Routine($0, fixture: fixture) })
+    }
+
+    /// Load one enrollment directory. The private JSON file is untouched, and the secret stays in that directory.
+    init(path: String, accounts: AccountStore, directory: String, humanID: String, routineID: String,
+         fixture: Bool) async throws {
+        // Foundation turns a relative name into an absolute path before the loader checks components.
+        let directoryURL = try enrollmentDirectoryURL(directory)
+        let grant: WebhookGrant
+        do {
+            grant = try loadRoutineGrant(humanID: humanID, directory: directoryURL, allowLoopback: fixture)
+        } catch {
+            throw SoloConfigurationError.invalidConfiguration
+        }
+        let routine = try Routine(humanID: humanID, routineID: routineID, grant: grant, fixture: fixture)
+        try await self.init(path: path, accounts: accounts, routines: [routine])
+    }
+
+    private init(path: String, accounts: AccountStore, routines: [Routine]) async throws {
+        self.routines = routines
         var bindings: [String: Routine] = [:]
         registry = AdapterRegistry()
         for routine in routines {
