@@ -17,6 +17,7 @@ targetTemplates:
         PRODUCT_BUNDLE_IDENTIFIER: com.section9labs.tachi
         INFOPLIST_KEY_CFBundleDisplayName: Tachi
         INFOPLIST_FILE: Support/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 targets:
   Tachi-iOS:
     templates: [TachiApp]
@@ -33,6 +34,8 @@ targets:
       base:
         ENABLE_APP_SANDBOX: YES
         ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        INFOPLIST_KEY_NSHumanReadableCopyright: Copyright © 2026 Section9Labs
   TachiTests:
     type: bundle.unit-test
     platform: macOS
