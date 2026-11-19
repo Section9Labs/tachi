@@ -6,7 +6,22 @@ From a coordinator checkout, start `python3 -m tachi --port 8743`. In a second t
 
 Run `python3 qa/test_probe_status.py` for the synthetic HTTP controls. Run `PYTHONPATH=. python3 qa/check_reference_turns.py` with adapter v1 present to exercise a solo fixture and a manually relayed sequence between two synthetic registrations. The driver supplies the requests and parent references. It checks request, identity, session and completion at each hop. Actual delegation, file access, client intervention and retrieval require the live scenario below. With the host module from [#6](https://github.com/Section9Labs/tachi/issues/6) on the Python path, run `PYTHONPATH=. python3 qa/check_host_grants.py` from an integrated checkout for the two-host database check. These commands are for engineers. Product scenarios below start and end in the Apple apps.
 
-On 2026-11-19 at 02:07:43 UTC, the independent client (Python 3.14.7) exited 0 against the running loopback coordinator at [bootstrap revision 30d38d0](https://github.com/Section9Labs/tachi/commit/30d38d0dd9b580b540b539b8b5410947ea503927). Scope of observation was one real HTTP request on macOS. Provider, Apple client and remote deployment acceptance are pending.
+On 2026-11-19 at 02:07:43 UTC, the independent client (Python 3.14.7) exited 0 against the running loopback coordinator at [bootstrap revision 30d38d0](https://github.com/Section9Labs/tachi/commit/30d38d0dd9b580b540b539b8b5410947ea503927). This observation covers one real HTTP request on macOS.
+
+## Apple clients and account pairing
+
+At Apple revision `cd787e4`, the Apple owner observed **Connected / Protocol 1** and a connection failure on an unused port on macOS 27.0.1 and an iPad Pro simulator running iOS 27.2. The server was the loopback bootstrap at `30d38d0`. QA independently regenerated the Xcode project from that Apple revision, ran all five macOS client tests and built the iOS Simulator target. Hosted HTTPS and a signed physical device remain open. [Apple client handoff](https://github.com/Section9Labs/tachi/pull/31)
+
+For [pairing acceptance](https://github.com/Section9Labs/tachi/issues/32), use a disposable coordinator database. Mint two short-lived invitations for separate clients of synthetic human A and a third for human B. Use the official operator flow, one invitation per client. Keep invitation and bearer values out of stdout, screenshots and run records.
+
+| Observer | Operation | Required observation |
+| --- | --- | --- |
+| QA, HTTP | Redeem the invitations, then read each client's own account. | Each client receives its selected scopes. A's clients have distinct client IDs bound to A. B resolves to B. |
+| QA, HTTP | Redeem A's consumed invitation a second time. | The server denies redemption and issues no credential. The already paired clients still resolve to their original accounts. |
+| QA, HTTP | Revoke one A client using the operator flow. Repeat its previously successful account read and the reads by both controls. | The revoked bearer is denied. The sibling client and B remain authorized. |
+| Apple owner | Pair in the app, relaunch, switch coordinator origin and local account, then return. Revoke the selected client. | The correct Keychain entry restores each binding only for its origin and local account. The UI surfaces the revoked binding and offers pairing again. Record simulator and physical HTTPS results separately. |
+
+QA independently reran the 26 repository tests at [account store revision c70ba72](https://github.com/Section9Labs/tachi/commit/c70ba724a96e7e93fe2c6adaeb324f3ca985482d). That revision covers client credentials at the store layer. On Python 3.11 and 3.14, `python3 qa/check_client_pairing.py` passed the three HTTP rows above against [HTTP revision 10ee249](https://github.com/Section9Labs/tachi/commit/10ee2490090156d521392401199ce475695ac030). Run from the coordinator checkout. The script starts its own loopback listener on an ephemeral port and uses the operator CLI and a temporary database. Replay and post-revocation reads returned 401. Both control clients retained their selected identities and scopes. Keychain isolation, physical HTTPS and team authorization are separate checks.
 
 ## Solo attachment and retrieval
 

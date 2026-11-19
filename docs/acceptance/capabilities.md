@@ -5,20 +5,20 @@ This is the public QA baseline for [#23](https://github.com/Section9Labs/tachi/i
 | Assistant or harness | Message | Task | Attachment | Tools | Cancel | Recover | Native evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | OpenAI Dot | U | U | U | U | U | U | Existing-Dot binding unavailable in Tachi |
-| Grok Bot | ? | ? | ? | ? | ? | ? | Native bot binding and tool run pending |
-| Instinct | ? | ? | ? | ? | ? | ? | Exact product and account path pending |
-| Zapia | ? | ? | ? | ? | ? | ? | Exact product and account path pending |
-| Claude Duet | ? | ? | ? | ? | ? | ? | Exact product and account path pending |
+| Grok Bot | U | F/U | U | U | U | U | Configured routine acceptance exercised in a fixture. No live submission, completion or readback |
+| Instinct | U | U | U | U | U | U | Product identified. Authorized account and supported connector path pending |
+| Zapia | U | U | U | U | U | U | Product identified. Team account and provider consent for automation pending |
+| Claude Duet | U | U | U | U | U | U | Product identified. Eligible invited seat and supported connector path pending |
 | Deterministic reference | F/U | F/U | U | U | U | U | In-process fixture with synthetic identities |
 | Tachi-managed hosted harness | ? | ? | ? | ? | ? | ? | Separate registration and genuine session pending |
 
 ## Sources and promotion criteria
 
 - **OpenAI Dot.** The owner inspected public issuer metadata, the Codex schema and reference-client behavior. Public sign-in discovery and offline schema fixtures have evidence. An authorized independent binding to an existing Dot, a fresh conversation, native action and retrieval after reconnect remain unavailable. The adapter advertises zero operations. [Dated Dot investigation](https://github.com/Section9Labs/tachi/blob/00a292930ba6a86795da8109276ea6f85da75d88/docs/providers/dot.md) · [Issue #3](https://github.com/Section9Labs/tachi/issues/3)
-- **Grok Bot.** Before the first native mark, identify the Bot product, subscription account path and existing assistant binding. Require a correlated native action and result from that same session. [Grok Bot investigation #4](https://github.com/Section9Labs/tachi/issues/4)
-- **Instinct.** Identify the product and supported account/assistant selector. Record any vendor-specific actions individually with source version and observation. [Instinct investigation #14](https://github.com/Section9Labs/tachi/issues/14)
-- **Zapia.** Confirm the harness, authorized integration surface and native permissions before testing account-bound work and recovery. [Zapia investigation #15](https://github.com/Section9Labs/tachi/issues/15)
-- **Claude Duet.** Identify the exact assistant and supported session surface. Verify access to the selected identity and native action under that identity. [Claude Duet investigation #16](https://github.com/Section9Labs/tachi/issues/16)
+- **Grok Bot.** QA reran the 24 Grok tests at `f1119dd`. In the routine fixture, HTTP 200 yields an `accepted` event. A configured adapter can advertise `task`. Native submission requires an authorized routine and a current subscription quota checkpoint. Completion, native conversation binding and result retrieval remain open. [Grok Bot investigation](https://github.com/Section9Labs/tachi/blob/f1119dd48a6278f3716a1c3c0c67f806079d750d/docs/providers/grok.md) · [Sanitized discovery record](https://github.com/Section9Labs/tachi/blob/f1119dd48a6278f3716a1c3c0c67f806079d750d/docs/providers/evidence/grok-bot.json)
+- **Instinct.** The owner identified the personal assistant at instinct.com and its text and phone interfaces. The reviewed public surface supplies no supported session interface. A team-controlled account and an authorized attachment path are missing. [Instinct investigation](https://github.com/Section9Labs/tachi/blob/f1119dd48a6278f3716a1c3c0c67f806079d750d/docs/providers/instinct.md)
+- **Zapia.** The owner identified BrainLogic AI's assistant and documented app actions including connected mail, calendar and tasks. The investigation records an outstanding account and consent requirement for automated integration. [Zapia investigation](https://github.com/Section9Labs/tachi/blob/f1119dd48a6278f3716a1c3c0c67f806079d750d/docs/providers/zapia.md)
+- **Claude Duet.** The owner identified Anthropic's Duet research preview and its native thread, tasks, approvals and files. An eligible invited account and a supported session interface remain outstanding. [Claude Duet investigation](https://github.com/Section9Labs/tachi/blob/f1119dd48a6278f3716a1c3c0c67f806079d750d/docs/providers/duet.md)
 - **Reference harness.** QA reran all six conformance tests at `73afd4d`. The adapter declares `message` and `task` and returns deterministic completion events. Duplicate-event and uncertain-submission controls are fixture evidence. The source exposes no attachment, native tool, cancellation or recovery operation. [Reference implementation](https://github.com/Section9Labs/tachi/blob/73afd4d2c8f21f0f22482d8b9a0f1c8470433099/tachi/runtime/reference.py) · [Conformance tests](https://github.com/Section9Labs/tachi/blob/73afd4d2c8f21f0f22482d8b9a0f1c8470433099/tests/test_runtime_contract.py)
 - **Tachi-managed hosted harness.** Record registration through the common contract, host and explicit permission grants, one genuine session and its independently retrieved artifact when delivered. [External connector and hosted-harness issue #17](https://github.com/Section9Labs/tachi/issues/17)
 
