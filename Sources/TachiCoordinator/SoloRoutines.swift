@@ -61,8 +61,8 @@ private struct Routine: Sendable {
         human = entry.human_id
         alias = entry.routine_id
         lane = try SoloLane(key: digest(human + "\0" + alias))
-        // A changed destination cannot inherit an older pending submission.
-        generation = digest(grant.destination())
+        // Scope pending work to this exact operator grant, including credential rotation.
+        generation = digest(grant.destination() + "\0" + grant.secret)
         adapter = try GrokBotAdapter(identity: lane.identity, webhookURL: grant.destination(),
                                      webhookSecret: grant.secret, allowLoopback: fixture)
     }
