@@ -29,11 +29,19 @@ jobs:
     container: swift:6.3-noble
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install SQLite and OpenSSL development headers
-        run: apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev libssl-dev
+        run: apt-get update && apt-get install -y --no-install-recommends libsqlite3-dev libssl-dev python3
       - name: Test runtime
-        if: hashFiles('Packages/TachiRuntime/Package.swift') != ''
         run: swift test --package-path Packages/TachiRuntime
       - name: Test accounts
-        if: hashFiles('Packages/TachiAccounts/Package.swift') != ''
         run: swift test --package-path Packages/TachiAccounts
+      - name: Verify paired HTTP and legacy SQLite migration
+        shell: bash
+        run: |
+          set -eu
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          legacy=$(mktemp -d)
+          git archive 10ee249 | tar -x -C "$legacy"
+          python3 qa/swift_service_parity.py pairing --legacy-root "$legacy"
