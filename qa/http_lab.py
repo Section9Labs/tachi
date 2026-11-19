@@ -1,6 +1,6 @@
 """Isolated loopback coordinator and operator CLI for independent HTTP checks."""
 
-from contextlib import closing
+from contextlib import closing, contextmanager
 import http.client
 import json
 from pathlib import Path
@@ -12,33 +12,46 @@ import unittest
 from urllib.parse import urlsplit
 
 
-class DisposableCoordinator(unittest.TestCase):
-    server_options = ()
+PYTHON_SERVICE = (sys.executable, "-m", "tachi")
+PYTHON_OPERATOR = (sys.executable, "-m", "tachi.hosts")
+
+
+class CoordinatorLab(unittest.TestCase):
+    service_command = PYTHON_SERVICE
+    operator_command = PYTHON_OPERATOR
+    service_root = None
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.directory = Path(directory.name)
         self.database = self.directory / "coordinator.sqlite"
-        server = subprocess.Popen(
-            [sys.executable, "-m", "tachi", "--db", self.database, "--port", "0", *self.server_options],
-            stdout=subprocess.PIPE, text=True,
-        )
-        self.addCleanup(server.stdout.close)
-        self.addCleanup(server.wait, 5)
-        self.addCleanup(server.terminate)
-        self.assertTrue(select.select([server.stdout], [], [], 10)[0], "coordinator startup timed out")
-        prefix = "Tachi listening on "
-        announcement = server.stdout.readline().strip()
-        self.assertTrue(announcement.startswith(prefix), "missing coordinator origin")
-        origin = urlsplit(announcement[len(prefix):])
-        self.assertEqual((origin.scheme, origin.hostname), ("http", "127.0.0.1"))
-        self.port = origin.port
-        self.assertIsNotNone(self.port)
+
+    @contextmanager
+    def serve(self, command, *options, cwd=None):
+        with subprocess.Popen([*command, "--port", "0", *options], cwd=cwd,
+                              stdout=subprocess.PIPE, text=True) as server:
+            try:
+                self.assertTrue(select.select([server.stdout], [], [], 10)[0], "coordinator startup timed out")
+                prefix = "Tachi listening on "
+                announcement = server.stdout.readline().strip()
+                self.assertTrue(announcement.startswith(prefix), "missing coordinator origin")
+                origin = urlsplit(announcement[len(prefix):])
+                self.assertEqual((origin.scheme, origin.hostname), ("http", "127.0.0.1"))
+                self.port = origin.port
+                self.assertIsNotNone(self.port)
+                yield
+            finally:
+                server.terminate()
+                try:
+                    server.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    server.kill()
+                    server.wait()
 
     def operator(self, command, human, *arguments):
-        subprocess.run([sys.executable, "-m", "tachi.hosts", command, "--db", self.database,
-                        "--human-id", human, *arguments], check=True, timeout=10)
+        subprocess.run([*self.operator_command, command, "--db", self.database,
+                        "--human-id", human, *arguments], cwd=self.service_root, check=True, timeout=10)
 
     def request(self, method, path, status, *, payload=None, token=None):
         headers = {"Accept": "application/json"}
@@ -55,3 +68,12 @@ class DisposableCoordinator(unittest.TestCase):
             self.assertEqual(response.headers.get_content_type(), "application/json")
             self.assertEqual(response.getheader("Cache-Control"), "no-store")
             return json.loads(response.read())
+
+
+class DisposableCoordinator(CoordinatorLab):
+    server_options = ()
+
+    def setUp(self):
+        super().setUp()
+        self.enterContext(self.serve(self.service_command, "--db", self.database, *self.server_options,
+                                     cwd=self.service_root))
