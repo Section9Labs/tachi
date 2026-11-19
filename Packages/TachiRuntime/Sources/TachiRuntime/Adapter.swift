@@ -68,6 +68,12 @@ public struct AdapterEvent: Sendable, Equatable {
     public let kind: EventKind
     public let payload: JSONObject
 
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.identity == rhs.identity && sameID(lhs.sessionID, rhs.sessionID)
+            && sameID(lhs.requestID, rhs.requestID) && sameID(lhs.eventID, rhs.eventID)
+            && lhs.kind == rhs.kind && lhs.payload == rhs.payload
+    }
+
     public init(identity: AdapterIdentity, sessionID: String, requestID: String,
                 eventID: String, kind: EventKind, payload: JSONObject) throws {
         try requireIDs(sessionID, requestID, eventID)

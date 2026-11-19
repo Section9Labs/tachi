@@ -63,3 +63,16 @@ func postSubmissionErrorsAreUncertain(failure: String) async throws {
     let req = try DispatchRequest(identity: id, sessionID: "s", requestID: "r", capability: .task, payload: [:])
     await #expect(throws: RuntimeError.dispatchUncertain) { try await registry.dispatch(req) }
 }
+
+@Test func publicEventEqualityPreservesOpaqueIDBytes() throws {
+    let id = try AdapterIdentity(provider: "fixture", accountID: "a", assistantID: "assistant")
+    func event(_ session: String, _ request: String, _ event: String) throws -> AdapterEvent {
+        try AdapterEvent(identity: id, sessionID: session, requestID: request,
+                         eventID: event, kind: .accepted, payload: [:])
+    }
+    let composed = "é", decomposed = "e\u{301}"
+    let base = try event(composed, composed, composed)
+    #expect(try base != event(decomposed, composed, composed))
+    #expect(try base != event(composed, decomposed, composed))
+    #expect(try base != event(composed, composed, decomposed))
+}
