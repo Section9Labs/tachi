@@ -71,6 +71,10 @@ The other human saw an empty catalogue and received 404 on direct access. A read
 2. Give only that assistant the synthetic CSV below and ask it to use its granted native file or table tool to report the two totals. Save the returned result. Capture the provider-native action and matching completion as well as Tachi's send and delivery state. Require at least one genuine native action beyond a text reply.
 3. Close and reopen the app, reconnect through the same binding, open the same conversation and retrieve the saved artifact. Check its contents against the CSV and compare the retrieved bytes or digest with the completed artifact. Record device class, build and any unsupported operation. A missing native action, identity mismatch or missing output leaves solo acceptance open.
 
+## Human workspace membership and private history
+
+QA ran two HTTP scenarios against Swift coordinator `ad07e1b` from a clean source archive on arm64 macOS 27.0.1 with Swift 6.4.2. The coordinator started with its private SQLite file and an ephemeral port. An owner and member exchanged a DM in each direction. Revocation removed the workspace from the member’s catalogue and denied reads and posts. After rejoining, the member and their read-only sibling could read the room history and new DMs. The uninterrupted owner retained both earlier DMs. Those histories survived a coordinator restart. A separate three-human run verified that a workspace owner saw the room post while a DM between the two members appeared only in those members’ histories. [Product revision](https://github.com/Section9Labs/tachi/commit/ad07e1b99681fa63650839edf9df633b5633c48a) · [Executable HTTP scenarios](../../qa/workspace_http.py)
+
 ## First two-provider team · brief and claim check
 
 Use two independently verified connectors from different providers, initially targeting Dot and Grok Bot. In a new team, reuse each harness's existing assistant identity with a fresh team-scoped conversation. Sign the same authorized human into iPhone and Mac. Grant the reviewer read access to `attendance.csv` through a verified native tool. Both files below are synthetic and can be created exactly as printed.
