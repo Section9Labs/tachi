@@ -73,15 +73,17 @@ final class CoordinatorHandler: ChannelInboundHandler {
                 let principal = pool.runIfActive(eventLoop: channel.eventLoop) {
                     try Self.authenticate(head, store: accounts)
                 }
-                Task {
-                    let response: Reply
-                    do {
-                        let client = try await principal.get()
-                        response = try await ReferenceRoute.reply(head, body: payload, headerError: headerError,
-                                                                  client: client, service: teams)
-                    } catch AccountsError.denied { response = Reply(.unauthorized, error: "unauthorized") }
-                    catch { response = Reply(.internalServerError, error: "storage_error") }
-                    channel.eventLoop.execute { Self.send(response, on: channel) }
+                let loop = channel.eventLoop
+                principal.flatMap { client in
+                    loop.makeFutureWithTask {
+                        try await ReferenceRoute.reply(head, body: payload, headerError: headerError,
+                                                       client: client, service: teams)
+                    }
+                }.recover { error in
+                    if error as? AccountsError == .denied { return Reply(.unauthorized, error: "unauthorized") }
+                    return Reply(.internalServerError, error: "storage_error")
+                }.whenSuccess { reply in
+                    Self.send(reply, on: channel)
                 }
                 return
             }
