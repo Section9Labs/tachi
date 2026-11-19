@@ -51,6 +51,30 @@ extension WorkspaceHistory {
         )
         """
 
+    static let deletedArtifactSchema = """
+        CREATE TABLE IF NOT EXISTS rt_deleted_workspace_artifact (
+            team TEXT NOT NULL, artifact TEXT NOT NULL, PRIMARY KEY(team,artifact)
+        ) WITHOUT ROWID
+        """
+
+    // Writers predating the delete route also have to respect reserved IDs.
+    static let preventArtifactResurrection = """
+        CREATE TRIGGER IF NOT EXISTS rt_reject_deleted_artifact BEFORE INSERT ON rt_workspace_artifact
+        WHEN EXISTS (SELECT 1 FROM rt_deleted_workspace_artifact WHERE team=NEW.team AND artifact=NEW.artifact)
+        BEGIN SELECT RAISE(ABORT, 'deleted artifact'); END
+        """
+
+    public func deleteArtifact(team: String, principal: QueuePrincipal, id: String) throws {
+        try db.transaction {
+            let generation = try authority.authorize(principal, team: team, scope: "messages:send", membershipID: nil)
+            try db.query("""
+                DELETE FROM rt_workspace_artifact WHERE team=? AND artifact=? AND author=? AND author_membership=?
+                """, [team, id, principal.humanID, generation])
+            guard try db.query("SELECT changes() AS removed").first?["removed"] == "1" else { throw QueueError.notFound }
+            try db.query("INSERT INTO rt_deleted_workspace_artifact(team,artifact) VALUES (?,?)", [team, id])
+        }
+    }
+
     private static let artifactColumns = """
         artifact,name,content_type,size_bytes,sha256,origin,author,recipient,source_message,source_task
         """
@@ -60,6 +84,8 @@ extension WorkspaceHistory {
         let hash = sha256(upload.bytes), content = upload.bytes.base64EncodedString()
         return try db.transaction {
             let sender = try authority.authorize(principal, team: team, scope: "messages:send", membershipID: nil)
+            guard try db.query("SELECT 1 FROM rt_deleted_workspace_artifact WHERE team=? AND artifact=?",
+                               [team, upload.id]).isEmpty else { throw QueueError.notFound }
             let recipient = try upload.recipient.map { human in
                 guard let member = try authority.membershipID(team: team, humanID: human) else { throw QueueError.denied }
                 return member

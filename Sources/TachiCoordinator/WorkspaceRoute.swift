@@ -53,7 +53,7 @@ enum WorkspaceRoute {
             }
             guard try accounts.teamMembership(teamID: team, humanID: human) != nil else { throw QueueError.notFound }
             if parts[1] == "artifacts" {
-                return try await WorkspaceArtifactRoute.reply(head.method, id: parts.count == 3 ? String(parts[2]) : nil,
+                return try await WorkspaceArtifactRoute.reply(head, id: parts.count == 3 ? String(parts[2]) : nil,
                                                                team: team, principal: principal, body: body, history: history)
             }
             switch (head.method, parts[1]) {

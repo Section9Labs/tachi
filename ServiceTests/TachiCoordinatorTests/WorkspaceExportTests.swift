@@ -116,3 +116,40 @@ func exportLimitsCountOnlyVisibleContent(_ dimension: String) async throws {
     #expect(try await lab.read(member, status: .payloadTooLarge) == ["error": .string("export_limit")])
     #expect(try await lab.read(owner) == ["workspace_id": .string(lab.workspace), "messages": .array([]), "artifacts": .array([])])
 }
+
+@Test func onlyTheUploadingGenerationCanRemoveAnArtifactFromWorkspaceReads() async throws {
+    let lab = try ExportLab()
+    defer { try? FileManager.default.removeItem(at: lab.directory) }
+    let owner = try lab.client("owner"), author = try lab.client("author")
+    let readOnly = try lab.client("author", scopes: ["sessions:read"])
+    let sibling = try lab.client("author", scopes: ["messages:send"])
+    try lab.accounts.createTeam(humanID: owner.humanID, clientID: owner.clientID, teamID: lab.team)
+    try lab.join(author, owner: owner)
+    let direct = try await lab.artifact(author, bytes: Data([0xff]), to: owner.humanID)
+    let room = try await lab.artifact(author, bytes: Data([0x7f]))
+    func delete(_ id: String, as client: ClientPrincipal, length: String? = nil) async throws -> Reply {
+        var head = HTTPRequestHead(version: .http1_1, method: .DELETE, uri: "/v1/workspaces/" + lab.workspace + "/artifacts/" + id)
+        if let length { head.headers.add(name: "Content-Length", value: length) }
+        return try await WorkspaceRoute.reply(head, body: Data(), headerError: nil, client: client,
+                                              accounts: lab.accounts, history: lab.history)
+    }
+
+    #expect(try await delete(direct, as: owner).status == .notFound)
+    #expect(try await delete(direct, as: readOnly).status == .forbidden)
+    #expect(try await delete(direct, as: sibling, length: "1").status == .badRequest)
+    let removed = try await delete(direct, as: sibling, length: "0")
+    #expect(removed.status == .ok)
+    #expect(try JSONDecoder().decode(JSONObject.self, from: removed.body) == ["deleted": .bool(true)])
+    #expect(try await delete(direct, as: author).status == .notFound)
+    for client in [owner, author] {
+        _ = try await lab.read(client, route: "artifacts/" + direct, status: .notFound)
+        let remaining = try await lab.read(client, route: "artifacts/" + room)
+        #expect(try await lab.read(client)["artifacts"] == .array([.object(remaining)]))
+    }
+
+    try lab.accounts.revokeMember(humanID: owner.humanID, clientID: owner.clientID, teamID: lab.team, recipientID: author.humanID)
+    #expect(try await delete(room, as: author).status == .notFound)
+    try lab.join(author, owner: owner)
+    _ = try await lab.read(author, route: "artifacts/" + room)
+    #expect(try await delete(room, as: author).status == .notFound)
+}
