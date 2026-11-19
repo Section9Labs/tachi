@@ -11,6 +11,15 @@ import Darwin
 
 enum SoloConfigurationError: Error { case invalidConfiguration }
 
+/// The operator argument must already be absolute. A relative name, `.`, or `..` is rejected before URL resolution.
+private func enrollmentDirectoryURL(_ directory: String) throws -> URL {
+    let parts = directory.split(separator: "/", omittingEmptySubsequences: false)
+    guard directory.hasPrefix("/"), !parts.contains("."), !parts.contains("..") else {
+        throw SoloConfigurationError.invalidConfiguration
+    }
+    return URL(fileURLWithPath: directory)
+}
+
 private struct RoutineFile: Decodable {
     struct Entry: Decodable {
         let human_id, routine_id, webhook_url, webhook_secret: String
@@ -116,10 +125,11 @@ struct SoloRoutines: Sendable {
     /// Load one enrollment directory. The private JSON file is untouched, and the secret stays in that directory.
     init(path: String, accounts: AccountStore, directory: String, humanID: String, routineID: String,
          fixture: Bool) async throws {
+        // Foundation turns a relative name into an absolute path before the loader checks components.
+        let directoryURL = try enrollmentDirectoryURL(directory)
         let grant: WebhookGrant
         do {
-            grant = try loadRoutineGrant(humanID: humanID, directory: URL(fileURLWithPath: directory),
-                                         allowLoopback: fixture)
+            grant = try loadRoutineGrant(humanID: humanID, directory: directoryURL, allowLoopback: fixture)
         } catch {
             throw SoloConfigurationError.invalidConfiguration
         }
