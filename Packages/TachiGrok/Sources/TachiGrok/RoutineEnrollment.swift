@@ -32,8 +32,10 @@ public struct RoutineEnrollment: Sendable, Equatable, CustomStringConvertible, C
 }
 
 /// Write a private enrollment for `humanID`. The directory is mode 0700.
-/// `enrollment.json` records the human and the canonical destination. `secret` is the bearer only.
-/// Both files are mode 0600 and owned by the effective user. This function does not send the routine.
+/// `enrollment.json` records the human and the canonical destination. The `secret`
+/// file stores that destination, one LF, and then the bearer. The `secret` argument
+/// is the bearer only. Both files are mode 0600 and owned by the effective user.
+/// This function does not send the routine.
 public func provisionRoutineGrant(
     humanID: String,
     issuedURL: String,
