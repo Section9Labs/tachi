@@ -49,7 +49,11 @@ final class CoordinatorHandler: ChannelInboundHandler {
             head = request
             if request.method == .POST && accounts != nil {
                 if request.uri == "/v1/client/pair" { maximum = 2048 }
-                if WorkspaceRoute.matches(request.uri) || SoloRoute.matches(request.uri) || (teams != nil && ReferenceRoute.matches(request.uri)) { maximum = 16384 }
+                if WorkspaceArtifactRoute.isCollection(request.uri) {
+                    maximum = WorkspaceArtifactRoute.envelopeLimit
+                } else if WorkspaceRoute.matches(request.uri) || SoloRoute.matches(request.uri) || (teams != nil && ReferenceRoute.matches(request.uri)) {
+                    maximum = 16384
+                }
             }
             if maximum == 2048, let error = Self.checkHeaders(request.headers, maximum: maximum) {
                 responding = true
@@ -59,7 +63,8 @@ final class CoordinatorHandler: ChannelInboundHandler {
             if maximum > 0 {
                 guard chunk.readableBytes <= maximum - body.count else {
                     responding = true
-                    Self.send(Reply(.badRequest, error: "invalid_length"), on: channel)
+                    let error = maximum == WorkspaceArtifactRoute.envelopeLimit ? Reply(.payloadTooLarge, error: "artifact_limit") : Reply(.badRequest, error: "invalid_length")
+                    Self.send(error, on: channel)
                     return
                 }
                 body.append(contentsOf: chunk.readableBytesView)
@@ -76,7 +81,7 @@ final class CoordinatorHandler: ChannelInboundHandler {
             if let accounts, isWorkspace || isSolo || (teams != nil && ReferenceRoute.matches(head.uri)) {
                 let solo = self.solo, teams = self.teams, history = self.history
                 let payload = body
-                let headerError = head.method == .POST ? Self.checkHeaders(head.headers, maximum: 16384) : nil
+                let headerError = head.method == .POST ? Self.checkHeaders(head.headers, maximum: maximum) : nil
                 let principal = pool.runIfActive(eventLoop: channel.eventLoop) {
                     try Self.authenticate(head, store: accounts)
                 }
