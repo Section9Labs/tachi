@@ -39,3 +39,5 @@ If a send fails, its text, audience, reply and stable message ID stay in the loc
 From a paired coordinator account, choose **Workspaces**. A client with **Create Workspace** can create a workspace, copy its ID, and create a one-use invitation for an exact human ID under **Membership**. Share the ID and invitation with that person. They can enter both under **Join Workspace** from their own paired account.
 
 Messages go to the room by default. Turn on **Direct message** and enter a human ID to address one member. Workspace owners can revoke a person’s access or withdraw their pending invitations under **Membership**.
+
+Open **Artifacts** inside a workspace to list shared files. Choose a file up to 1 MiB and use **Upload Artifact** to share it in the room or with a specific member. Only mark **Synthetic fixture** for test data. Open a listed artifact and choose **Verify and Export** to download it, check its size and SHA-256, and choose a save location.
