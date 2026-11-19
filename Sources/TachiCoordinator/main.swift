@@ -73,6 +73,9 @@ var port = 8743
 var database: String?
 var enableReferenceTeams = false
 var soloFile: String?
+var soloDirectory: String?
+var soloHuman: String?
+var soloRoutine: String?
 var soloFixture = false
 var arguments = CommandLine.arguments.dropFirst().makeIterator()
 while let option = arguments.next() {
@@ -87,6 +90,12 @@ while let option = arguments.next() {
     switch (option, arguments.next()) {
     case ("--solo-routines-file", let value?) where !value.isEmpty:
         soloFile = value
+    case ("--solo-enrollment-directory", let value?) where !value.isEmpty:
+        soloDirectory = value
+    case ("--solo-enrollment-human", let value?) where !value.isEmpty:
+        soloHuman = value
+    case ("--solo-enrollment-routine", let value?) where !value.isEmpty:
+        soloRoutine = value
     case ("--db", let value?) where !value.isEmpty:
         database = value
     case ("--host", let value?) where !value.isEmpty:
@@ -94,7 +103,7 @@ while let option = arguments.next() {
     case ("--port", let value?) where UInt16(value) != nil:
         port = Int(UInt16(value)!)
     default:
-        let usage = "Usage: tachi-coordinator [--db PATH] [--reference-teams] [--solo-routines-file PATH] [--solo-loopback-fixture] [--host ADDRESS] [--port 0...65535]\n"
+        let usage = "Usage: tachi-coordinator [--db PATH] [--reference-teams] [--solo-routines-file PATH] [--solo-enrollment-directory PATH --solo-enrollment-human ID --solo-enrollment-routine ID] [--solo-loopback-fixture] [--host ADDRESS] [--port 0...65535]\n"
         _ = usage.withCString { write(STDERR_FILENO, $0, usage.utf8.count) }
         exit(EXIT_FAILURE)
     }
@@ -113,12 +122,21 @@ if enableReferenceTeams {
 }
 let solo: SoloRoutines?
 do {
-    if soloFixture && (soloFile == nil || !["127.0.0.1", "::1"].contains(host)) {
+    let enrollmentSelected = soloDirectory != nil || soloHuman != nil || soloRoutine != nil
+    if soloFixture && ((soloFile == nil && soloDirectory == nil) || !["127.0.0.1", "::1"].contains(host)) {
+        throw SoloConfigurationError.invalidConfiguration
+    }
+    if (soloFile != nil && enrollmentSelected) ||
+        (enrollmentSelected && (soloDirectory == nil || soloHuman == nil || soloRoutine == nil)) {
         throw SoloConfigurationError.invalidConfiguration
     }
     if let soloFile {
         guard let database, let accounts else { throw SoloConfigurationError.invalidConfiguration }
         solo = try await SoloRoutines(path: database, accounts: accounts, config: soloFile, fixture: soloFixture)
+    } else if let soloDirectory, let soloHuman, let soloRoutine {
+        guard let database, let accounts else { throw SoloConfigurationError.invalidConfiguration }
+        solo = try await SoloRoutines(path: database, accounts: accounts, directory: soloDirectory,
+                                      humanID: soloHuman, routineID: soloRoutine, fixture: soloFixture)
     } else {
         solo = nil
     }
