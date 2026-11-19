@@ -9,6 +9,11 @@ struct CoordinatorCredentialStore: Sendable {
     }
 
     func load(origin: URL, account: String) async throws -> CoordinatorCredential? {
+        #if DEBUG && os(macOS)
+        if LoopbackTestCredentials.handles(origin) {
+            return await LoopbackTestCredentials.shared.load(service: service(origin), account: account)
+        }
+        #endif
         var query = key(origin: origin, account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -25,6 +30,12 @@ struct CoordinatorCredentialStore: Sendable {
     }
 
     func save(_ credential: CoordinatorCredential, origin: URL, account: String) async throws {
+        #if DEBUG && os(macOS)
+        if LoopbackTestCredentials.handles(origin) {
+            try await LoopbackTestCredentials.shared.save(credential, service: service(origin), account: account)
+            return
+        }
+        #endif
         var item = key(origin: origin, account: account)
         item[kSecValueData as String] = try JSONEncoder().encode(credential)
         #if os(iOS)
@@ -38,14 +49,24 @@ struct CoordinatorCredentialStore: Sendable {
     }
 
     func remove(origin: URL, account: String) async throws {
+        #if DEBUG && os(macOS)
+        if LoopbackTestCredentials.handles(origin) {
+            await LoopbackTestCredentials.shared.remove(service: service(origin), account: account)
+            return
+        }
+        #endif
         let status = SecItemDelete(key(origin: origin, account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else { throw CredentialStoreError.remove }
+    }
+
+    private func service(_ origin: URL) -> String {
+        "\(servicePrefix):\(origin.absoluteString)"
     }
 
     private func key(origin: URL, account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "\(servicePrefix):\(origin.absoluteString)",
+            kSecAttrService as String: service(origin),
             kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: false
         ]

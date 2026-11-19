@@ -14,7 +14,7 @@ For a physical device or a Release build, enter the HTTPS origin of your coordin
 
 ## Pair a coordinator account
 
-Start the coordinator with its account database configured. Ask the coordinator operator for a new client invitation. After setting the coordinator URL in Tachi, enter the invitation under **Coordinator account** and select **Pair Device**. Tachi stores the credential in Keychain for that origin and local account label. It checks the saved credential on launch and when you select **Check Account**.
+Start the coordinator with its account database configured. Ask the coordinator operator for a new client invitation. After setting the coordinator URL in Tachi, enter the invitation under **Coordinator account** and select **Pair Device**. Tachi stores the credential in Keychain for that origin and local account label. For routine macOS Debug tests at an HTTP loopback address, Tachi keeps the test credential in memory until the app quits. Reuse the running test coordinator and paired account across scenarios. It checks the saved credential on launch and when you select **Check Account**.
 
 Use a new local label and a separate invitation for a second account or another client of the same person. To return to a saved account, enter its label and select **Check Account**. Tachi will ask for another invitation if the coordinator revokes that client. The public status check works independently of pairing.
 
