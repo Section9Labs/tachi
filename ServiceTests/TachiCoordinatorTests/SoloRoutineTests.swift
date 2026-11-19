@@ -119,3 +119,44 @@ func reopenedSoloWorkerRechecksOriginAndCredential(rotateCredential: Bool) async
                            "origin": .object(["scheme": .string("https"), "host": .string("example.invalid"),
                                               "port": .integer(443)])]])
 }
+
+@Test func enrollmentDirectoryRejectsARelativePath() async throws {
+    let lab = try SoloLab()
+    defer { try? FileManager.default.removeItem(at: lab.folder) }
+    let directory = lab.folder.appendingPathComponent("enroll", isDirectory: true)
+    _ = try provisionRoutineGrant(humanID: "fixture-owner", issuedURL: "http://127.0.0.1:9/fixture",
+                                  secret: "directory-secret", directory: directory, allowLoopback: true)
+    let loaded = try await SoloRoutines(path: lab.database, accounts: lab.accounts, directory: directory.path,
+                                        humanID: "fixture-owner", routineID: "sample", fixture: true)
+    #expect(loaded.list(try lab.client()).map(\.routine_id) == ["sample"])
+
+    let parent = directory.deletingLastPathComponent()
+    let name = directory.lastPathComponent
+    let relative = [name, "./" + name, "../" + parent.lastPathComponent + "/" + name]
+    #expect(foundationResolves(relative, to: directory))
+    for input in relative {
+        await #expect(throws: SoloConfigurationError.self) {
+            _ = try await SoloRoutines(path: lab.database, accounts: lab.accounts, directory: input,
+                                       humanID: "fixture-owner", routineID: "sample", fixture: true)
+        }
+    }
+    let dotted = parent.deletingLastPathComponent().path + "/../" + parent.lastPathComponent + "/" + name
+    #expect(dotted.contains(".."))
+    await #expect(throws: SoloConfigurationError.self) {
+        _ = try await SoloRoutines(path: lab.database, accounts: lab.accounts, directory: dotted,
+                                   humanID: "fixture-owner", routineID: "sample", fixture: true)
+    }
+}
+
+private let enrollmentPathLock = NSLock()
+
+private func foundationResolves(_ inputs: [String], to directory: URL) -> Bool {
+    enrollmentPathLock.lock()
+    defer { enrollmentPathLock.unlock() }
+    let saved = FileManager.default.currentDirectoryPath
+    defer { _ = FileManager.default.changeCurrentDirectoryPath(saved) }
+    guard FileManager.default.changeCurrentDirectoryPath(directory.deletingLastPathComponent().path) else { return false }
+    return inputs.allSatisfy {
+        URL(fileURLWithPath: $0).standardizedFileURL.path == directory.standardizedFileURL.path
+    }
+}
