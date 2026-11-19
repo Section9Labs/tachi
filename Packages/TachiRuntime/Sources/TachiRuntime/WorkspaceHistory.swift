@@ -1,5 +1,17 @@
 import Foundation
 
+/// The SQLite WHERE clause and bindings shared by every human workspace read.
+struct WorkspaceAudience {
+    static let predicate = """
+        team=? AND (recipient IS NULL OR (author=? AND author_membership=?) OR (recipient=? AND recipient_membership=?))
+        """
+    let bindings: [String?]
+
+    init(team: String, human: String, generation: String) {
+        bindings = [team, human, generation, human, generation]
+    }
+}
+
 /// A human transcript has no assistant binding, run, or adapter delivery.
 public actor WorkspaceHistory {
     let db: RuntimeDatabase
@@ -45,18 +57,25 @@ public actor WorkspaceHistory {
         }
     }
 
+    // Resolve inside the same immediate transaction that materializes the rows.
+    func readAudience(team: String, principal: QueuePrincipal) throws -> WorkspaceAudience {
+        let generation = try authority.authorize(principal, team: team, scope: "sessions:read", membershipID: nil)
+        return WorkspaceAudience(team: team, human: principal.humanID, generation: generation)
+    }
+
+    func visibleMessages(_ audience: WorkspaceAudience, limit: Int = -1) throws -> [JSONObject] {
+        try db.query("""
+            SELECT message,body,author,recipient FROM rt_workspace_message
+            WHERE \(WorkspaceAudience.predicate) ORDER BY seq LIMIT ?
+            """, audience.bindings + [String(limit)]).map { row in
+                try ["message_id": .string(row.required("message")), "text": .string(row.required("body")),
+                     "author_id": .string(row.required("author")), "recipient_id": row["recipient"].map(JSONValue.string) ?? .null]
+            }
+    }
+
     public func messages(team: String, principal: QueuePrincipal) throws -> [JSONObject] {
-        // Hold the same lock as revoke/rejoin until the authorized history has been materialized.
         try db.transaction {
-            let member = try authority.authorize(principal, team: team, scope: "sessions:read", membershipID: nil)
-            return try db.query("""
-                SELECT message,body,author,recipient FROM rt_workspace_message WHERE team=? AND
-                (recipient IS NULL OR (author=? AND author_membership=?) OR (recipient=? AND recipient_membership=?))
-                ORDER BY seq
-                """, [team, principal.humanID, member, principal.humanID, member]).map { row in
-                    try ["message_id": .string(row.required("message")), "text": .string(row.required("body")),
-                         "author_id": .string(row.required("author")), "recipient_id": row["recipient"].map(JSONValue.string) ?? .null]
-                }
+            try visibleMessages(readAudience(team: team, principal: principal))
         }
     }
 }

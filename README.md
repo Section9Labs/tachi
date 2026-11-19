@@ -48,3 +48,11 @@ swift run tachi-coordinator --db "$TACHI_DB"
 ```
 
 The operator delivers the invitation privately to the intended person. Within five minutes the client sends `POST /v1/client/pair` with a JSON object containing the `invitation` string. A successful redemption returns HTTP 201 and the new `clientID` and `token`. Store the token in the client's credential store for that coordinator. `GET /v1/client/me` with bearer authorization returns the bound human, client and scopes. Remote clients require an HTTPS endpoint and a proxy that keeps credentials and request bodies out of logs. Revoking a client through `tachi-accounts revoke-client` invalidates its bearer on the next request.
+
+## Export a human workspace
+
+A paired client with `sessions:read` can send an authenticated `GET /v1/workspaces/{workspace_id}/export` to a Swift coordinator started with `--db`. Use the workspace's lowercase canonical UUID. The JSON response contains `workspace_id`, ordered `messages`, and ordered `artifacts`. Each artifact includes its metadata and SHA-256-verified `content_base64`.
+
+Current members can export room history. A direct message or artifact is visible to a sender or recipient whose current membership generation matches the one recorded when it was shared. Rejoining restores room history and starts a new generation for private exchanges.
+
+The export returns the whole visible result up to 100 messages, 16 artifacts, and 4 MiB of decoded artifact content combined. Crossing any limit returns HTTP 413 with `{"error":"export_limit"}`. Private rows outside the caller's audience do not contribute to these limits.

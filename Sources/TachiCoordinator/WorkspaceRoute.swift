@@ -73,11 +73,18 @@ enum WorkspaceRoute {
                 try await history.post(team: team, principal: principal, id: message, text: fields["text"]!,
                                        recipient: fields["recipient_id"])
                 return try encoded(.created, ["message_id": message])
+            case (.GET, "export"):
+                var export = try await history.export(team: team, principal: principal, sha256: WorkspaceArtifactRoute.digest)
+                export["workspace_id"] = .string(id)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = .withoutEscapingSlashes
+                return try Reply(.ok, encoder.encode(export))
             case (.GET, "messages"):
                 return try await encoded(.ok, ["messages": history.messages(team: team, principal: principal)])
             default: throw QueueError.notFound
             }
         } catch WorkspaceArtifactError.limitExceeded { return Reply(.payloadTooLarge, error: "artifact_limit") }
+        catch WorkspaceExportError.limitExceeded { return Reply(.payloadTooLarge, error: "export_limit") }
         catch QueueError.denied { return Reply(.forbidden, error: "forbidden") }
         catch AccountsError.denied { return Reply(.forbidden, error: "forbidden") }
         catch QueueError.notFound { return Reply(.notFound, error: "not_found") }
