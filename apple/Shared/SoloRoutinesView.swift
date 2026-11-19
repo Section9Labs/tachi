@@ -40,6 +40,11 @@ struct SoloRoutinesView: View {
                                 Text("Grok Bot routine")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
+                                if let originText = routine.originText {
+                                    Text(verbatim: originText)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }

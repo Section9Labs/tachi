@@ -112,7 +112,9 @@ struct CoordinatorClientTests {
         let endpoint = try CoordinatorEndpoint("https://solo.example")
         let api = SoloRoutineClient(client: client(), endpoint: endpoint,
                                     credential: .init(clientID: "fixture-client", token: "fixture-bearer"))
-        #expect(try await api.routines().map(\.id) == ["demo"])
+        let routines = try await api.routines()
+        #expect(routines.map(\.id) == ["demo"])
+        #expect(routines.first?.originText == nil)
         let receipt = try await api.submit(routineID: "demo", taskID: soloFixtureTaskID, text: "  fixture input\n")
         #expect(receipt == SoloTaskReceipt(taskID: soloFixtureTaskID, state: .queued))
         #expect(try await api.status(routineID: "demo", taskID: receipt.taskID).state == .accepted)
@@ -123,6 +125,15 @@ struct CoordinatorClientTests {
         await #expect(throws: CoordinatorError.unexpectedResponse) {
             try await api.submit(routineID: "demo", taskID: receipt.taskID.uppercased(), text: "fixture")
         }
+    }
+
+    @Test func displaysOnlyValidatedOriginFieldsFromTheRoutineCatalogue() async throws {
+        let endpoint = try CoordinatorEndpoint("https://origin-catalogue.example")
+        let api = SoloRoutineClient(client: client(), endpoint: endpoint,
+                                    credential: .init(clientID: "fixture-client", token: "fixture-bearer"))
+        let routines = try await api.routines()
+        #expect(routines.map(\.id) == ["secure", "fixture", "bad_host", "bad_port", "bad_scheme"])
+        #expect(routines.map(\.originText) == ["https://grok.example:443", "http://127.0.0.1:8744", nil, nil, nil])
     }
 
     @Test(arguments: [SoloTaskState.rejected, .uncertain, .denied, .blocked])
@@ -189,6 +200,19 @@ private final class StatusURLProtocol: URLProtocol, @unchecked Sendable {
             respond(201, #"{"message_id":"\#(identifier)"}"#, url: url)
             return
         case "/v1/solo/routines" where request.httpMethod == "GET" && authorization == "Bearer fixture-bearer":
+            if url.host == "origin-catalogue.example" {
+                respond(200, #"""
+                    {"routines":[
+                      {"routine_id":"secure","provider":"grok-bot","origin":
+                        {"scheme":"https","host":"grok.example","port":443,"path":"/private","bearer":"synthetic"}},
+                      {"routine_id":"fixture","provider":"grok-bot","origin":{"scheme":"http","host":"127.0.0.1","port":8744}},
+                      {"routine_id":"bad_host","provider":"grok-bot","origin":{"scheme":"https","host":"grok.example/private","port":443}},
+                      {"routine_id":"bad_port","provider":"grok-bot","origin":{"scheme":"https","host":"grok.example","port":"443"}},
+                      {"routine_id":"bad_scheme","provider":"grok-bot","origin":{"scheme":"https","host":"localhost","port":443}}
+                    ]}
+                    """#, url: url)
+                return
+            }
             respond(200, #"{"routines":[{"routine_id":"demo","provider":"grok-bot"},{"routine_id":"../other","provider":"grok-bot"},{"routine_id":"fixture-other","provider":"other"}]}"#, url: url)
             return
         case "/v1/solo/routines/demo/tasks" where request.httpMethod == "POST" && authorization == "Bearer fixture-bearer"
