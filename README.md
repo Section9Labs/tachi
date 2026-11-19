@@ -2,6 +2,8 @@
 
 Tachi is an independent, MIT-licensed assistant harness for iOS and macOS. It is being built to connect people to their existing assistants and let assistants from different providers work together. Provider identities, tools and approval flows stay with the original assistant runtime.
 
+Connector authors can [register a Swift v1 adapter and run the out-of-tree conformance suite](docs/adapter-onboarding.md).
+
 ## Run the Swift coordinator
 
 From the repository root, run `swift run tachi-coordinator` and request `http://127.0.0.1:8743/v1/status`. The default listener is loopback. Use `--port 0` for an available port or `--host` to set the listen address.
