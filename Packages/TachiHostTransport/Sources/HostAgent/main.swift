@@ -127,9 +127,18 @@ private func runAgent(endpoint: Endpoint, key: Key, folder: String, state: Strin
     }
 }
 
-private func main(_ args: [String]) throws {
+private func main(_ arguments: [String]) throws {
+    let args: [String], caFile: String?
+    if arguments.first == "--ca-der" {
+        guard arguments.count >= 2 else { throw TransportError.usage }
+        caFile = arguments[1]
+        args = Array(arguments.dropFirst(2))
+    } else {
+        args = arguments
+        caFile = nil
+    }
     guard args.count >= 2 else { throw TransportError.usage }
-    let endpoint = try Endpoint(args[1])
+    let endpoint = try Endpoint(args[1], caFile: caFile)
     switch (args[0], args.count) {
     case ("pair", 4):
         let ticket = try String(contentsOfFile: args[2], encoding: .utf8).trimmingCharacters(in: .newlines)
@@ -148,6 +157,6 @@ private func main(_ args: [String]) throws {
 
 do { try main(Array(CommandLine.arguments.dropFirst())) }
 catch {
-    FileHandle.standardError.write(Data("Host agent stopped. Usage: pair ORIGIN INVITATION NEW_CREDENTIAL | run ORIGIN CREDENTIAL FOLDER PRIVATE_STATE_DIR\n".utf8))
+    FileHandle.standardError.write(Data("Host agent stopped. Usage: [--ca-der FILE] pair ORIGIN INVITATION NEW_CREDENTIAL | [--ca-der FILE] run ORIGIN CREDENTIAL FOLDER PRIVATE_STATE_DIR\n".utf8))
     exit(1)
 }
