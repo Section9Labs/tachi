@@ -43,7 +43,7 @@ enum WorkspaceRoute {
             }
 
             let parts = head.uri.dropFirst(root.count + 1).split(separator: "/", omittingEmptySubsequences: false)
-            guard parts.count == 2, validID(String(parts[0])) else { throw QueueError.notFound }
+            guard (parts.count == 2 || (parts.count == 3 && parts[1] == "artifacts")), validID(String(parts[0])) else { throw QueueError.notFound }
             let id = String(parts[0]), team = prefix + id
             if parts[1] == "redeem", head.method == .POST {
                 let fields = try input(body, required: ["invitation"])
@@ -52,6 +52,10 @@ enum WorkspaceRoute {
                 return try encoded(.ok, summary(id, member.role))
             }
             guard try accounts.teamMembership(teamID: team, humanID: human) != nil else { throw QueueError.notFound }
+            if parts[1] == "artifacts" {
+                return try await WorkspaceArtifactRoute.reply(head.method, id: parts.count == 3 ? String(parts[2]) : nil,
+                                                               team: team, principal: principal, body: body, history: history)
+            }
             switch (head.method, parts[1]) {
             case (.POST, "invitations"):
                 let fields = try input(body, required: ["recipient_id"])
@@ -73,7 +77,8 @@ enum WorkspaceRoute {
                 return try await encoded(.ok, ["messages": history.messages(team: team, principal: principal)])
             default: throw QueueError.notFound
             }
-        } catch QueueError.denied { return Reply(.forbidden, error: "forbidden") }
+        } catch WorkspaceArtifactError.limitExceeded { return Reply(.payloadTooLarge, error: "artifact_limit") }
+        catch QueueError.denied { return Reply(.forbidden, error: "forbidden") }
         catch AccountsError.denied { return Reply(.forbidden, error: "forbidden") }
         catch QueueError.notFound { return Reply(.notFound, error: "not_found") }
         catch QueueError.invalidInput { return Reply(.badRequest, error: "invalid_request") }
@@ -92,5 +97,5 @@ enum WorkspaceRoute {
         try Reply(status, JSONEncoder().encode(value))
     }
 
-    private static func validID(_ id: String) -> Bool { UUID(uuidString: id)?.uuidString.lowercased() == id }
+    static func validID(_ id: String) -> Bool { UUID(uuidString: id)?.uuidString.lowercased() == id }
 }
