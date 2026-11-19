@@ -1,0 +1,18 @@
+{
+  "fill": {
+    "automatic-gradient": "srgb:0.05500,0.27500,0.31500,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        { "glass": true, "image-name": "upper-route.svg", "name": "Upper route" },
+        { "glass": true, "image-name": "lower-route.svg", "name": "Lower route" }
+      ],
+      "shadow": { "kind": "neutral", "opacity": 0.45 },
+      "translucency": { "enabled": true, "value": 0.4 }
+    }
+  ],
+  "supported-platforms": {
+    "squares": ["iOS", "macOS"]
+  }
+}
