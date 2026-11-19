@@ -20,8 +20,7 @@ public actor TeamQueue {
         try requireIDs(team, alias, sessionID)
         try db.transaction {
             try authorize(principal, team, "teams:manage")
-            try db.query("INSERT INTO rt_assistant(team,member,provider,account,assistant,session) VALUES(?,?,?,?,?,?)",
-                         [team, "assistant:" + alias, identity.provider, identity.accountID, identity.assistantID, sessionID])
+            try db.insertAssistant(team: team, alias: alias, identity: identity, sessionID: sessionID)
         }
     }
 
@@ -45,7 +44,7 @@ public actor TeamQueue {
         try db.transaction {
             try authorize(principal, team, "teams:manage")
             _ = try recipient(lead, team: team)
-            try db.query("INSERT INTO rt_run(team,run,lead,turn_limit) VALUES(?,?,?,?)", [team, run, lead, String(turnLimit)])
+            try db.insertRun(team: team, run: run, lead: lead, turnLimit: turnLimit)
         }
     }
 
@@ -219,5 +218,17 @@ extension HostScope {
     var object: JSONObject {
         ["owner_id": .string(ownerID), "host_id": .string(hostID), "grant_id": .string(grantID),
          "folder_id": .string(folderID), "action": .string(action), "relative_path": .string(relativePath)]
+    }
+}
+
+
+extension RuntimeDatabase {
+    func insertAssistant(team: String, alias: String, identity: AdapterIdentity, sessionID: String) throws {
+        try query("INSERT INTO rt_assistant(team,member,provider,account,assistant,session) VALUES(?,?,?,?,?,?)",
+                  [team, "assistant:" + alias, identity.provider, identity.accountID, identity.assistantID, sessionID])
+    }
+
+    func insertRun(team: String, run: String, lead: String, turnLimit: Int) throws {
+        try query("INSERT INTO rt_run(team,run,lead,turn_limit) VALUES(?,?,?,?)", [team, run, lead, String(turnLimit)])
     }
 }
