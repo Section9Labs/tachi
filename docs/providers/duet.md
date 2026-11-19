@@ -10,6 +10,20 @@ Anthropic introduced Claude Duet on 21 October 2026. The help center article upd
 
 It is a research preview for Claude Pro, Max, and Ultra subscribers in the US, through a waitlist or an invitation from someone who already has it. Team and Enterprise plans are not included yet. It uses the Claude account and that plan's usage limits, including background work. It is included in the plan during the preview, not billed as a separate API meter. The model is Claude Opus 5.5. The user cannot pick a model.
 
+## Identifiers
+
+Confirmed from primary pages on 2026-11-18. The product name in this matrix is Claude Duet. The word Claude alone is ambiguous.
+
+| Identifier | Status | Source |
+| --- | --- | --- |
+| Product name Claude Duet | Confirmed | [Get started with Claude Duet](https://support.claude.com/en/articles/17631495-get-started-with-claude-duet) and [claude.com/product/claude-duet](https://claude.com/product/claude-duet) |
+| Model name Claude Opus 5.5 | Confirmed in the help article | A model name inside the product, not the product id |
+| Clients | Confirmed as iPhone and Android apps plus the Claude account | Help article. No bundle id is stated there |
+| Seller Anthropic PBC | Store listing | [App Store listing](https://apps.apple.com/us/app/claude-duet-by-anthropic/id6803276000). The help article does not spell the legal entity |
+| Apple listing id 6803276000 | Store listing | Same App Store URL. Not stated in the help article |
+| Bundle id | Ambiguous | Unpublished in the help article and not shown in the App Store information block read for this pass |
+| Session API | Unpublished in the help article | No adapter |
+
 Native clients named in the article are the iOS and Android apps, reached from an invitation email, plus the Claude account those apps sign into. The article also describes the product on claude.ai in the October launch post.
 
 ## Authorization

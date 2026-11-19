@@ -4,7 +4,23 @@ Preliminary matrix for issue #14. Reviewed 2026-11-19. No v1 adapter is register
 
 ## Product
 
-Instinct is a personal assistant from the company behind instinct.com. The official homepage, read on 2026-11-19, describes text or a phone call as the interface, and a phone and computer used the way a person would. The call to action is [Try Instinct](https://app.instinct.com/login).
+Instinct is a personal assistant from the company behind instinct.com. The official homepage, read on 2026-11-18, describes text or a phone call as the interface, and a phone and computer used the way a person would. The call to action is [Try Instinct](https://app.instinct.com/login).
+
+## Identifiers
+
+Confirmed from the live pages on 2026-11-18.
+
+| Identifier | Status | Source |
+| --- | --- | --- |
+| Product name Instinct | Confirmed | [Terms](https://instinct.com/terms), last revised 2026-11-17, and [privacy policy](https://instinct.com/privacy-policy), last revised 2026-11-17 |
+| Legal entity Spear Street Technology, Inc., a Delaware corporation | Confirmed | Same terms |
+| Trade name Instinct | Confirmed on the SMS pages | [SMS terms](https://instinct.com/legal/sms-terms.html), last revised 2026-08-17, say Spear Street Technology, Inc. d/b/a Instinct. The 2026-11-17 terms name the corporation and do not repeat that line |
+| Website www.instinct.com | Confirmed | Terms and privacy policy |
+| App host app.instinct.com | Confirmed | Homepage, terms, and privacy policy |
+| Paths `/workspace` and `/settings` | Confirmed | Homepage, terms, and privacy policy |
+| Sign-in path | Ambiguous | Homepage call to action is `https://app.instinct.com/login`. SMS terms name `https://app.instinct.com/signin` |
+| Bundle id | Ambiguous | Unpublished on the homepage, the 2026-11-17 terms, the privacy policy, and the SMS terms |
+| Session API | Unpublished on those pages | No adapter |
 
 Secondary write-ups from early November 2026 still describe an invite-only beta reached through iMessage, WhatsApp, and phone, with email, calendar, and read-only financial connections. Those reports are not the product contract. The homepage now shows a login URL and does not publish a session API, SDK, or webhook.
 

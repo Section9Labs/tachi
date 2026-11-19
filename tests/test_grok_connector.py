@@ -23,7 +23,12 @@ from tachi.providers.grok.connector import (
 )
 from tachi.providers.grok.probe import ProbeError, version_drift
 from tachi.providers.grok.product import PRODUCT_ID, SubstituteRejected, reject_substitute
-from tachi.providers.grok.quota import QuotaBlocked, QuotaCheckpoint, parse_checkpoint
+from tachi.providers.grok.quota import (
+    QuotaBlocked,
+    QuotaCheckpoint,
+    parse_checkpoint,
+    require_spend_allowed,
+)
 from tachi.runtime import (
     AdapterIdentity,
     AdapterRegistry,
@@ -38,17 +43,6 @@ ROOT = Path(__file__).resolve().parents[1]
 PLIST = ROOT / "tests" / "fixtures" / "grok" / "Info.plist"
 FEED = ROOT / "tests" / "fixtures" / "grok" / "release_feed.json"
 NOW = datetime(2026, 11, 19, 2, 30, tzinfo=timezone.utc)
-
-
-def _checkpoint(**overrides) -> QuotaCheckpoint:
-    payload = {
-        "observed_at": "2026-11-19T02:00:00Z",
-        "source": "grok-bot-settings",
-        "billing": "subscription",
-        "weekly_pool": "available",
-    }
-    payload.update(overrides)
-    return parse_checkpoint(payload)
 
 
 class ProductTests(unittest.TestCase):
@@ -121,13 +115,7 @@ class QuotaTests(unittest.TestCase):
                 }
             )
 
-    def test_stale_checkpoint_blocks_before_the_network(self) -> None:
-        called = {"n": 0}
-
-        def transport(request, timeout):
-            called["n"] += 1
-            return HttpResult(200, b"")
-
+    def test_stale_or_missing_checkpoint_blocks_engineering_spend_only(self) -> None:
         old = QuotaCheckpoint(
             observed_at=NOW - timedelta(hours=13),
             source="grok-bot-settings",
@@ -135,26 +123,9 @@ class QuotaTests(unittest.TestCase):
             weekly_pool="available",
         )
         with self.assertRaises(QuotaBlocked):
-            trigger_routine(
-                "https://example.invalid/hook",
-                "test-secret",
-                {"task": "pong"},
-                old,
-                now=NOW,
-                transport=transport,
-            )
-        self.assertEqual(called["n"], 0)
-
+            require_spend_allowed(old, now=NOW)
         with self.assertRaises(QuotaBlocked):
-            trigger_routine(
-                "https://example.invalid/hook",
-                "test-secret",
-                {"task": "pong"},
-                None,
-                now=NOW,
-                transport=transport,
-            )
-        self.assertEqual(called["n"], 0)
+            require_spend_allowed(None, now=NOW)
 
 
 class RoutineTests(unittest.TestCase):
@@ -164,8 +135,6 @@ class RoutineTests(unittest.TestCase):
                 "https://api.x.ai/v1/responses",
                 "test-secret",
                 {"task": "pong"},
-                _checkpoint(),
-                now=NOW,
                 transport=lambda *_: HttpResult(200, b""),
             )
 
@@ -181,8 +150,6 @@ class RoutineTests(unittest.TestCase):
             "https://hooks.example.invalid/routine",
             "test-secret",
             {"task": "Reply with the single word pong."},
-            _checkpoint(),
-            now=NOW,
             transport=transport,
         )
         self.assertTrue(result.accepted)
@@ -199,8 +166,6 @@ class RoutineTests(unittest.TestCase):
                 "https://hooks.example.invalid/routine",
                 "test-secret",
                 None,
-                _checkpoint(),
-                now=NOW,
                 transport=transport,
             )
         self.assertNotIn("test-secret", str(caught.exception))
@@ -229,8 +194,6 @@ class RoutineTests(unittest.TestCase):
                 f"http://127.0.0.1:{port}/routine",
                 "loopback-secret",
                 {"task": "synthetic pong"},
-                _checkpoint(),
-                now=NOW,
                 allow_loopback=True,
             )
         finally:
@@ -241,6 +204,84 @@ class RoutineTests(unittest.TestCase):
         self.assertFalse(result.completed)
         self.assertEqual(received["auth"], "Bearer loopback-secret")
         self.assertEqual(json.loads(received["body"])["task"], "synthetic pong")
+
+    def test_redirect_keeps_the_secret_on_the_configured_url(self) -> None:
+        hits = {"a": 0, "b": 0, "a_auth": None, "b_auth": None}
+        target = {"location": ""}
+
+        class Landing(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:
+                hits["b"] += 1
+                hits["b_auth"] = self.headers.get("Authorization")
+                self.send_response(200)
+                self.end_headers()
+
+            def do_POST(self) -> None:
+                self.do_GET()
+
+            def log_message(self, fmt: str, *args) -> None:
+                return
+
+        class Redirecting(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                hits["a"] += 1
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                hits["a_auth"] = self.headers.get("Authorization")
+                self.send_response(302)
+                self.send_header("Location", target["location"])
+                self.end_headers()
+
+            def log_message(self, fmt: str, *args) -> None:
+                return
+
+        landing_server = ThreadingHTTPServer(("127.0.0.1", 0), Landing)
+        target["location"] = f"http://127.0.0.1:{landing_server.server_address[1]}/landed"
+        redirect_server = ThreadingHTTPServer(("127.0.0.1", 0), Redirecting)
+        threads = []
+        for server in (landing_server, redirect_server):
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            threads.append(thread)
+        try:
+            port = redirect_server.server_address[1]
+            with self.assertRaises(RoutineRejected) as caught:
+                trigger_routine(
+                    f"http://127.0.0.1:{port}/routine",
+                    "loopback-secret",
+                    {"task": "synthetic pong"},
+                    allow_loopback=True,
+                )
+        finally:
+            landing_server.shutdown()
+            redirect_server.shutdown()
+            landing_server.server_close()
+            redirect_server.server_close()
+            for thread in threads:
+                thread.join(timeout=2)
+        self.assertEqual(caught.exception.status, 302)
+        self.assertNotIn("loopback-secret", str(caught.exception))
+        self.assertEqual(hits["a"], 1)
+        self.assertEqual(hits["a_auth"], "Bearer loopback-secret")
+        self.assertEqual(hits["b"], 0)
+        self.assertIsNone(hits["b_auth"])
+
+    def test_authorized_webhook_sends_without_a_quota_checkpoint(self) -> None:
+        called = {"n": 0}
+
+        def transport(request, timeout):
+            called["n"] += 1
+            return HttpResult(200, b"")
+
+        result = trigger_routine(
+            "https://hooks.example.invalid/routine",
+            "test-secret",
+            {"task": "pong"},
+            transport=transport,
+        )
+        self.assertEqual(called["n"], 1)
+        self.assertTrue(result.accepted)
+        self.assertFalse(result.completed)
 
 
 class AdapterTests(unittest.TestCase):
@@ -281,9 +322,7 @@ class AdapterTests(unittest.TestCase):
             identity,
             webhook_url="https://hooks.example.invalid/routine",
             webhook_secret="synthetic-secret",
-            checkpoint=_checkpoint(),
             transport=transport,
-            clock=lambda: NOW,
         )
         registry = AdapterRegistry()
         registry.register(adapter)
@@ -297,14 +336,19 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(events[0].request_id, request.request_id)
         self.assertEqual(
             events[0].payload,
-            {"accepted": True, "completed": False, "native_session_observed": False},
+            {
+                "routine_accepted": True,
+                "native_reply": False,
+                "native_session_observed": False,
+            },
         )
+        self.assertNotEqual(events[0].kind, EventKind.COMPLETED)
         self.assertNotIn("synthetic-secret", json.dumps(events[0].payload))
         self.assertEqual(seen["body"]["task"], "Reply with the single word pong.")
         with self.assertRaises(UnsupportedCapability):
             registry.dispatch(self._request(identity, Capability.MESSAGE))
 
-    def test_missing_quota_does_not_send(self) -> None:
+    def test_authorized_webhook_dispatches_without_a_quota_checkpoint(self) -> None:
         identity = self._identity()
         called = {"n": 0}
 
@@ -316,14 +360,13 @@ class AdapterTests(unittest.TestCase):
             identity,
             webhook_url="https://hooks.example.invalid/routine",
             webhook_secret="synthetic-secret",
-            checkpoint=None,
             transport=transport,
-            clock=lambda: NOW,
         )
         events = adapter.dispatch(self._request(identity))
-        self.assertEqual(events[0].kind, EventKind.FAILED)
-        self.assertEqual(events[0].payload["reason"], "quota_checkpoint_required")
-        self.assertEqual(called["n"], 0)
+        self.assertEqual(called["n"], 1)
+        self.assertEqual(events[0].kind, EventKind.ACCEPTED)
+        self.assertFalse(events[0].payload["native_reply"])
+        self.assertTrue(events[0].payload["routine_accepted"])
 
     def test_billed_host_is_a_local_failure(self) -> None:
         identity = self._identity()
@@ -331,9 +374,7 @@ class AdapterTests(unittest.TestCase):
             identity,
             webhook_url="https://api.x.ai/v1/responses",
             webhook_secret="synthetic-secret",
-            checkpoint=_checkpoint(),
             transport=lambda *_: HttpResult(200, b""),
-            clock=lambda: NOW,
         )
         events = adapter.dispatch(self._request(identity))
         self.assertEqual(events[0].kind, EventKind.FAILED)
@@ -352,9 +393,7 @@ class AdapterTests(unittest.TestCase):
             identity,
             webhook_url="https://hooks.example.invalid/routine",
             webhook_secret="synthetic-secret",
-            checkpoint=_checkpoint(),
             transport=transport,
-            clock=lambda: NOW,
         )
         registry = AdapterRegistry()
         registry.register(adapter)
@@ -377,7 +416,8 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(record["live_routine"], "not_sent")
         self.assertEqual(record["advertised_capabilities"], [])
         self.assertEqual(record["client_drift"], "installed_behind_feed")
-        self.assertIn("quota checkpoint", record["access_dependency"])
+        self.assertIn("authorized webhook", record["access_dependency"])
+        self.assertIn("not a Bot reply", record["access_dependency"])
         self.assertIsNone(record["quota_checkpoint"])
 
     def test_sanitizer_rejects_an_email(self) -> None:

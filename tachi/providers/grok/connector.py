@@ -2,7 +2,8 @@
 
 The only sanctioned programmatic start is a routine webhook created in the
 desktop app. Chat completions, the Grok Build CLI, and copied app tokens are
-not accepted. A subscription quota checkpoint is required before that webhook.
+not accepted. The webhook secret is sent only to the configured URL. Redirects
+are not followed. HTTP 200 accepts the run and is not a Bot reply.
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ from tachi.providers.grok.product import (
     PRODUCT_ID,
     PRODUCT_NAME,
 )
-from tachi.providers.grok.quota import QuotaCheckpoint, require_spend_allowed
+from tachi.providers.grok.quota import QuotaCheckpoint
 
 Transport = Callable[[urllib.request.Request, float], "HttpResult"]
 
@@ -99,16 +100,13 @@ def published_release(url: str | None = None, *, opener=None) -> ReleaseFeed:
 def trigger_routine(
     url: str,
     bearer: str,
-    body: dict | None,
-    checkpoint: QuotaCheckpoint | None,
+    body: dict | None = None,
     *,
-    now: datetime,
     transport: Transport | None = None,
     timeout: float = 30,
     allow_loopback: bool = False,
 ) -> RoutineAcceptance:
-    """Start a routine. HTTP 200 means the run was accepted, not that it finished."""
-    require_spend_allowed(checkpoint, now=now)
+    """Start a routine. HTTP 200 means the run was accepted, not that the Bot replied."""
     _validate_webhook(url, bearer, allow_loopback=allow_loopback)
     payload = json.dumps(body or {}).encode("utf-8")
     request = urllib.request.Request(
@@ -187,11 +185,16 @@ def _access_dependency(install: ClientInstall, checkpoint: QuotaCheckpoint | Non
         return "Grok Bot desktop app is not installed. Sign in through the app. No API key substitutes."
     if checkpoint is None:
         return (
-            "Installed client can be probed, but no subscription quota checkpoint is on file. "
-            "A native routine run also needs the webhook URL and secret created in that Bot. "
-            "Those values stay with the operator and are not stored here."
+            "Installed client can be probed. This engineering record did not start a routine. "
+            "A user who already has an authorized webhook does not also need a quota checkpoint. "
+            "HTTP 200 means the routine was accepted and is not a Bot reply. "
+            "The result stays in the Bot chat and in phone Run history, and this connector does not read either."
         )
-    return "Quota checkpoint is present. A routine webhook still needs an operator-held URL and secret."
+    return (
+        "An engineering quota note is on file for shared-account spend. "
+        "A user who already has an authorized webhook does not also need a quota checkpoint. "
+        "The webhook URL and secret stay with the operator and are not stored here."
+    )
 
 
 def _validate_webhook(url: str, bearer: str, *, allow_loopback: bool) -> None:
@@ -211,12 +214,33 @@ def _validate_webhook(url: str, bearer: str, *, allow_loopback: bool) -> None:
     raise NotSent("routine URL must be https")
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Keep the webhook secret on the URL the operator configured."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        raise urllib.error.HTTPError(req.full_url, code, msg, headers, fp)
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
+
+def _opener() -> urllib.request.OpenerDirector:
+    # No environment proxy, and no redirect. The secret goes to one URL.
+    return urllib.request.build_opener(_NoRedirect(), urllib.request.ProxyHandler({}))
+
+
 def _transport(request: urllib.request.Request, timeout: float) -> HttpResult:
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with _opener().open(request, timeout=timeout) as response:
             return HttpResult(status=response.status, body=response.read())
     except urllib.error.HTTPError as exc:
-        return HttpResult(status=exc.code, body=exc.read())
+        try:
+            body = exc.read() if exc.fp is not None else b""
+        finally:
+            exc.close()
+        return HttpResult(status=exc.code, body=body)
     except urllib.error.URLError as exc:
         raise SubmissionUnobserved("routine submission result was not observed") from exc
 

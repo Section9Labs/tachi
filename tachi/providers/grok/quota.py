@@ -1,4 +1,8 @@
-"""Subscription quota checkpoint. Spend is refused until one is on file."""
+"""Engineering checkpoint for shared-account subscription spend.
+
+An authorized Grok Bot webhook does not call this module. A missing or stale
+checkpoint does not block that user.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,7 @@ SPENDABLE_POOL = "available"
 
 
 class QuotaBlocked(Exception):
-    """A live Grok Bot operation would spend the weekly pool and must not start."""
+    """Engineering spend of the shared weekly pool is refused."""
 
 
 @dataclass(frozen=True)
@@ -59,9 +63,9 @@ def require_spend_allowed(
     now: datetime,
     max_age: timedelta = timedelta(hours=12),
 ) -> None:
-    """Block before any network call that can start Bot work."""
+    """Refuse engineering spend. The product webhook path does not call this."""
     if checkpoint is None:
-        raise QuotaBlocked("no quota checkpoint; live Grok Bot work is stopped")
+        raise QuotaBlocked("no engineering quota checkpoint; shared-account spend is stopped")
     if checkpoint.billing != ALLOWED_BILLING or checkpoint.weekly_pool != SPENDABLE_POOL:
         raise QuotaBlocked("quota checkpoint does not allow subscription spend")
     if now.tzinfo is None:

@@ -22,5 +22,5 @@
   "quota_checkpoint": null,
   "live_routine": "not_sent",
   "advertised_capabilities": [],
-  "access_dependency": "Installed client can be probed, but no subscription quota checkpoint is on file. A native routine run also needs the webhook URL and secret created in that Bot. Those values stay with the operator and are not stored here."
+  "access_dependency": "Installed client can be probed. This engineering record did not start a routine. A user who already has an authorized webhook does not also need a quota checkpoint. HTTP 200 means the routine was accepted and is not a Bot reply. The result stays in the Bot chat and in phone Run history, and this connector does not read either."
 }

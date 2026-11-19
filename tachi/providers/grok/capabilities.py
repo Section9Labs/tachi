@@ -39,7 +39,7 @@ CAPABILITIES = (
         "operation": "task.routine_webhook",
         "app": "supported",
         "programmatic": "yes",
-        "note": "POST the routine URL with Authorization Bearer. HTTP 200 means accepted, not finished.",
+        "note": "POST the operator webhook. HTTP 200 means the run was accepted. It is not a Bot reply.",
     },
     {
         "operation": "approval.decide",
@@ -83,6 +83,5 @@ CONNECTOR_OPERATIONS = (
     "probe_client",
     "fetch_release",
     "describe",
-    "require_quota_checkpoint",
     "trigger_routine",
 )

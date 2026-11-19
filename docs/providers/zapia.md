@@ -4,7 +4,24 @@ Preliminary matrix for issue #15. Reviewed 2026-11-19. No v1 adapter is register
 
 ## Product
 
-Zapia is the personal assistant from BrainLogic AI (Montevideo and San Francisco). The company site is [zapia.com](https://zapia.com). People use the Android, iOS, and web app at [app.zapia.com](https://app.zapia.com). The company's 19 January 2026 post says Zapia stopped operating inside WhatsApp after a Meta policy change, and that the app remained the place to use the assistant. Store listings checked later in 2026 still mention WhatsApp features, so the store text and the company post disagree. The company post is the source for the channel shutdown.
+Zapia is the personal assistant from Brainlogic AI SAS. The company site is [zapia.com](https://zapia.com). People use the Android, iOS, and web app at [app.zapia.com](https://app.zapia.com).
+
+## Identifiers
+
+Confirmed from the company site on 2026-11-18.
+
+| Identifier | Status | Source |
+| --- | --- | --- |
+| Product name Zapia | Confirmed | [Terms](https://zapia.com/terminos?lang=en) and the [privacy notice](https://zapia.com/privacy?lang=en), last updated 2026-04-01 |
+| Legal entity Brainlogic AI SAS | Confirmed | Terms and privacy notice. The notice intro also says BrainLogic AI. That is the same company name with a different capital letter, not a second entity |
+| Location Montevideo, Uruguay | Confirmed | Privacy notice contact block |
+| Web app https://app.zapia.com/ | Confirmed | Company homepage link |
+| Apple listing id 6470821480 | Store listing | Company homepage links to `apps.apple.com/uy/app/zapia-ai-personal-assistant/id6470821480` |
+| Android package `com.brainlogic.zapia` | Store listing | Company homepage links to the Play Store id `com.brainlogic.zapia` |
+| URL scheme `zapia` | Confirmed in a homepage deep link | The homepage emits `zapia://chat`. This is not a bundle id |
+| Bundle id | Ambiguous | Unpublished on the terms, the privacy notice, and the homepage |
+| WhatsApp as a channel | Ambiguous | The [19 January 2026 post](https://zapia.com/blog/zapia-whatsapp-stopped-working-what-happened?lang=en) says Zapia stopped replying inside WhatsApp in Mexico, Argentina, and Colombia, and that it continued in Brazil while a CADE review was open. The homepage still offers Connect my WhatsApp |
+| Session API | Unpublished on the terms | Terms restrict unauthorized automated connections. No adapter |
 
 Public pages read for this pass do not include a developer portal, OpenAPI document, or session SDK. The terms of use prohibit reverse engineering and prohibit creating APIs or other automated connections without Zapia's consent.
 
@@ -28,7 +45,7 @@ A model API from another vendor, including any model Zapia happens to host, is n
 | Approval | Zapia Max is described as asking before some actions and logging steps | Changelog, 13 April 2026 |
 | Cancellation | Not specified as a session API | Unknown |
 | Recovery | Not specified | Unknown |
-| Drift | Store copy still mentions WhatsApp after the company said that channel stopped | Recorded as a source conflict, not resolved by using the product |
+| Drift | WhatsApp status differs by country and by later homepage copy | 19 January 2026 post versus the homepage Connect my WhatsApp action. Not resolved by using the product |
 | Programmatic API | No public session API found. Terms restrict unauthorized automation | Access blocker |
 
 ## Access blocker
