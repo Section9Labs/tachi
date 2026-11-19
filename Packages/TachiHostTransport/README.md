@@ -43,7 +43,9 @@ Every route takes a bounded JSON POST. The bearer travels in the Authorization h
 | `check` | Current claiming session, request ID, exact scope. Checks live client, original team membership generation, running state, lease and matching host grant. |
 | `finish` | Current session of the same paired device. Reports the request ID, completed or refused outcome, and byte count. Identical reports are idempotent. A conflicting report fails. |
 
-A numeric port selects HTTP on trusted single-user loopback for local operation. For another machine the agent accepts only an HTTPS origin. Use a separately operated TLS endpoint that forwards to the loopback sidecar. The client uses platform certificate verification, binds its credential file to the selected origin and disallows redirects. Protect the loopback port from replacement by untrusted local processes, and exclude auth headers and bodies from proxy logs. Remote TLS deployment and physical mixed-host acceptance require separate qualification.
+A numeric port selects HTTP on trusted single-user loopback for local operation. For another machine the agent accepts only an HTTPS origin. Use a separately operated TLS endpoint that forwards to the loopback sidecar. The client uses platform certificate verification, binds its credential file to the selected origin and disallows redirects. Protect the loopback port from replacement by untrusted local processes, and exclude auth headers and bodies from proxy logs.
+
+The Mac agent uses system trust by default. For a private issuer, pass `--ca-der /path/to/issuer.der` before both `pair` and `run`, using the same HTTPS origin. Obtain the public CA certificate from the operator through a trusted channel. This option selects that CA as the sole trust anchor for the invocation. macOS verifies the certificate chain, validity and requested hostname. Keychain trust settings are unchanged.
 
 ## Work and reconciliation
 
@@ -58,6 +60,9 @@ After execution, the agent saves a receipt in its private state directory before
 ```sh
 swift test --package-path Packages/TachiHostTransport -Xswiftc -warnings-as-errors
 PYTHONPATH=. python3 -W error Packages/TachiHostTransport/Tests/Acceptance/process_lab.py Packages/TachiHostTransport/.build/debug
+PYTHONPATH=. python3 -W error Packages/TachiHostTransport/Tests/Acceptance/process_lab.py Packages/TachiHostTransport/.build/debug --https
 ```
 
-The second command exercises actual Swift binaries and files on one Mac. It uses the Python policy implementation as a setup and observation oracle. Two paired host processes run independently. One misses its lease while the other renews and creates its file. A test gate withholds the first host's completion, allowing both the agent and the sidecar to be killed and restarted after publication. The test verifies one terminal event on the original request, unchanged file identity and timestamps, and rejection of a subsequently revoked grant.
+The process lab exercises actual Swift binaries and files on one Mac, using Python for setup and observation. With `--https`, it uses the OpenSSL CLI to generate a disposable CA and localhost certificate in a private temporary directory. Both agents initiate HTTPS connections to a loopback TLS proxy. Pairing fails with an unknown issuer or mismatched hostname before an invitation reaches the proxy's HTTP handler.
+
+The proxy drops one host's connections until its lease expires. The other host renews and publishes its file. After reconnection, the lab withholds the first host's completion, restarts its agent and the sidecar, and checks for one terminal event on the original request and unchanged file identity and timestamps. It also pauses a claimed write before the sidecar receives the execution check, revokes the grant, and verifies a 403, a zero-byte refusal and an absent file. Subsequent work on that grant stays blocked. Deployment through a remote TLS endpoint and physical cross-machine effects remain separate acceptance steps.
