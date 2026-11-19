@@ -33,7 +33,7 @@ enum WorkspaceArtifactRoute {
         }
     }
 
-    private static func digest(_ data: Data) -> String {
+    static func digest(_ data: Data) -> String {
         var output = [UInt8](repeating: 0, count: 32)
         data.withUnsafeBytes { solo_digest($0.baseAddress, $0.count, &output) }
         return output.map { String(format: "%02x", $0) }.joined()
