@@ -84,17 +84,23 @@ struct CoordinatorView: View {
             ProgressView("Connecting…")
         case .connected(let status):
             VStack(alignment: .leading, spacing: 4) {
-                Label("Connected", systemImage: "checkmark.circle.fill")
-                    .font(.headline)
-                    .foregroundStyle(.green)
+                Label {
+                    Text("Connected")
+                } icon: {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                }
+                .font(.headline)
                 Text("Coordinator ready · Protocol \(status.protocolVersion)")
                     .foregroundStyle(.secondary)
             }
         case .failed(let message):
             VStack(alignment: .leading, spacing: 4) {
-                Label("Connection failed", systemImage: "exclamationmark.circle.fill")
-                    .font(.headline)
-                    .foregroundStyle(.red)
+                Label {
+                    Text("Connection failed")
+                } icon: {
+                    Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.red)
+                }
+                .font(.headline)
                 Text(message)
                     .foregroundStyle(.secondary)
             }
