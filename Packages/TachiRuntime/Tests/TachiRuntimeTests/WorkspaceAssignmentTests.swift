@@ -12,7 +12,7 @@ private struct WorkspacePolicy: QueueAuthority {
     var revoked: String?
 
     func membershipID(team: String, humanID: String) throws -> String? {
-        guard team == workspace else { return nil }
+        guard [workspace, "workspace/other"].contains(team) else { return nil }
         return [grantor.humanID: ownerGeneration, sender.humanID: senderGeneration][humanID]
     }
 
@@ -28,13 +28,16 @@ private actor RoutineReceipt: Adapter {
     let version = 1, capabilities: Set<Capability> = [.task]
     let identity: AdapterIdentity
     let kind: EventKind
+    let afterSubmission: @Sendable () async throws -> Void
     private(set) var calls: [DispatchRequest] = []
-    init(_ kind: EventKind = .accepted) throws {
+    init(_ kind: EventKind = .accepted, afterSubmission: @escaping @Sendable () async throws -> Void = {}) throws {
         identity = try AdapterIdentity(provider: "grok-bot", accountID: "fixture-account", assistantID: "fixture-routine")
         self.kind = kind
+        self.afterSubmission = afterSubmission
     }
-    func dispatch(_ request: DispatchRequest) throws -> [AdapterEvent] {
+    func dispatch(_ request: DispatchRequest) async throws -> [AdapterEvent] {
         calls.append(request)
+        try await afterSubmission()
         return [try AdapterEvent(identity: identity, sessionID: request.sessionID, requestID: request.requestID,
                                  eventID: "receipt", kind: kind, payload: ["routine_accepted": .bool(true),
                                    "native_reply": .bool(false), "native_session_observed": .bool(false)])]
@@ -118,4 +121,73 @@ func workspaceReceiptCannotBecomeDelegationOrInventedCompletion(kind: EventKind)
     #expect(rows.map { $0["state"] } == [.string(kind == .accepted ? "active" : "uncertain"), .string("denied")])
     #expect(try await restored.dispatchWorkspaceAssignment(registry: lab.registry, lookup: lab.lookup) == nil)
     #expect(await lab.adapter.calls.count == 1)
+}
+
+@Test func pausedBindingSurvivesReopenWhileAnotherWorkspaceRuns() async throws {
+    let lab = try await AssignmentLab()
+    defer { try? FileManager.default.removeItem(at: lab.folder) }
+    let ownerSibling = QueuePrincipal(humanID: grantor.humanID, clientID: "owner-sibling")
+    let other = "workspace/other"
+    let summary = try await lab.queue.bindWorkspaceRoutine(team: other, principal: grantor, routine: "routine", lookup: lab.lookup)
+    guard case let .string(otherID) = summary["assistant_id"] else { throw QueueError.corruptStore }
+    _ = try await lab.queue.assign(team: other, principal: sender, id: UUID().uuidString.lowercased(),
+                                   assistantID: otherID, text: "Other workspace.", lookup: lab.lookup)
+    let control = try TeamQueue(path: lab.db, authority: WorkspacePolicy())
+    #expect(try await !control.workspaceDispatchPaused(team: workspace, principal: sender, id: lab.binding))
+    await #expect(throws: QueueError.denied) {
+        try await control.setWorkspaceDispatchPaused(team: workspace, principal: sender, id: lab.binding, paused: true)
+    }
+    await #expect(throws: QueueError.notFound) {
+        try await control.setWorkspaceDispatchPaused(team: other, principal: grantor, id: lab.binding, paused: true)
+    }
+    try await control.setWorkspaceDispatchPaused(team: workspace, principal: ownerSibling, id: lab.binding, paused: true)
+    try await control.setWorkspaceDispatchPaused(team: workspace, principal: ownerSibling, id: lab.binding, paused: true)
+    let queued = try await lab.queue.assign(team: workspace, principal: sibling, id: UUID().uuidString.lowercased(),
+                                           assistantID: lab.binding, text: "While paused.", lookup: lab.lookup)
+    #expect(queued["state"] == .string("queued"))
+    // A different connection claims after pause has committed. Only the other workspace is eligible.
+    #expect(try await lab.queue.dispatchWorkspaceAssignment(registry: lab.registry, lookup: lab.lookup) != nil)
+    #expect(try await lab.queue.dispatchWorkspaceAssignment(registry: lab.registry, lookup: lab.lookup) == nil)
+    #expect(await lab.adapter.calls.map(\.payload) == [["text": .string("Other workspace.")]])
+
+    let reopened = try TeamQueue(path: lab.db, authority: WorkspacePolicy(revoked: sender.clientID))
+    #expect(try await reopened.workspaceDispatchPaused(team: workspace, principal: sibling, id: lab.binding))
+    try await reopened.setWorkspaceDispatchPaused(team: workspace, principal: ownerSibling, id: lab.binding, paused: false)
+    try await reopened.setWorkspaceDispatchPaused(team: workspace, principal: ownerSibling, id: lab.binding, paused: false)
+    // The first sender was revoked during pause. Resuming preserves the original sender of each post.
+    #expect(try await reopened.dispatchWorkspaceAssignment(registry: lab.registry, lookup: lab.lookup) != nil)
+    #expect(await lab.adapter.calls.count == 1)
+    #expect(try await reopened.dispatchWorkspaceAssignment(registry: lab.registry, lookup: lab.lookup) != nil)
+    #expect(try await reopened.dispatchWorkspaceAssignment(registry: lab.registry, lookup: lab.lookup) == nil)
+    let rows = try await reopened.workspaceAssignments(team: workspace, principal: sibling, id: nil)
+    #expect(rows.map { $0["state"] } == [.string("denied"), .string("active")])
+    #expect(await lab.adapter.calls.map(\.payload) == [["text": .string("Other workspace.")], ["text": .string("While paused.")]])
+    try await reopened.revokeWorkspaceAssistant(team: workspace, principal: ownerSibling, id: lab.binding)
+    await #expect(throws: QueueError.notFound) {
+        try await reopened.setWorkspaceDispatchPaused(team: workspace, principal: ownerSibling, id: lab.binding, paused: false)
+    }
+}
+
+@Test(arguments: [false, true])
+func pauseAfterClaimPreservesOutstandingSubmission(loseReply: Bool) async throws {
+    let lab = try await AssignmentLab()
+    defer { try? FileManager.default.removeItem(at: lab.folder) }
+    let control = try TeamQueue(path: lab.db, authority: WorkspacePolicy())
+    let registry = AdapterRegistry()
+    let adapter = try RoutineReceipt {
+        // Pause from an independent connection after the submission, before the adapter returns.
+        try await control.setWorkspaceDispatchPaused(team: workspace, principal: grantor, id: lab.binding, paused: true)
+        if loseReply { throw RuntimeError.dispatchUncertain }
+    }
+    try await registry.register(adapter)
+    #expect(try await lab.queue.dispatchWorkspaceAssignment(registry: registry, lookup: lab.lookup) != nil)
+    #expect(try await control.workspaceDispatchPaused(team: workspace, principal: sender, id: lab.binding))
+    _ = try await control.assign(team: workspace, principal: sender, id: UUID().uuidString.lowercased(),
+                                 assistantID: lab.binding, text: "Next.", lookup: lab.lookup)
+    try await control.setWorkspaceDispatchPaused(team: workspace, principal: grantor, id: lab.binding, paused: false)
+    #expect(try await lab.queue.dispatchWorkspaceAssignment(registry: registry, lookup: lab.lookup) == nil)
+    let deliveries = try await control.history(team: workspace, principal: sender, run: lab.binding).flatMap(\.deliveries)
+    #expect(deliveries.map(\.state) == [loseReply ? "uncertain" : "active", "queued"])
+    #expect(deliveries.first?.events.map(\.kind) == (loseReply ? [] : [.accepted]))
+    #expect(await adapter.calls.count == 1)
 }

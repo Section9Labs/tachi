@@ -88,6 +88,38 @@ extension TeamQueue {
         }
     }
 
+    private func bindingIsPaused(team: String, id: String) throws -> Bool {
+        let row = try db.query("""
+            SELECT r.state FROM rt_workspace_binding b JOIN rt_run r ON r.team=b.team AND r.run=b.binding
+            WHERE b.team=? AND b.binding=? AND b.enabled=1
+            """, [team, id]).first
+        guard let row else { throw QueueError.notFound }
+        switch try row.required("state") {
+        case "running": return false
+        case "paused": return true
+        case "completed", "cancelled": throw QueueError.conflict
+        default: throw QueueError.corruptStore
+        }
+    }
+
+    public func workspaceDispatchPaused(team: String, principal: QueuePrincipal, id: String) throws -> Bool {
+        try db.transaction(write: false) {
+            try authorize(principal, team, "sessions:read")
+            return try bindingIsPaused(team: team, id: id)
+        }
+    }
+
+    /// A durable claim and this update serialize on the same SQLite writer lock.
+    /// An earlier claim keeps its outcome. The paused run still accepts queued assignments.
+    public func setWorkspaceDispatchPaused(team: String, principal: QueuePrincipal, id: String, paused: Bool) throws {
+        try db.transaction {
+            try authorize(principal, team, "teams:manage")
+            if try bindingIsPaused(team: team, id: id) != paused {
+                try db.query("UPDATE rt_run SET state=? WHERE team=? AND run=?", [paused ? "paused" : "running", team, id])
+            }
+        }
+    }
+
     public func assign(team: String, principal: QueuePrincipal, id: String, assistantID: String, text: String,
                        lookup: WorkspaceRoutineLookup) throws -> JSONObject {
         guard UUID(uuidString: id)?.uuidString.lowercased() == id, text.unicodeScalars.count <= 4000,
