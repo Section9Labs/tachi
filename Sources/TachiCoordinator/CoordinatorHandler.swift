@@ -3,8 +3,9 @@ import NIOCore
 import NIOHTTP1
 import NIOPosix
 import TachiAccounts
+import TachiRuntime
 
-private struct Reply: Sendable {
+struct Reply: Sendable {
     var status: HTTPResponseStatus
     var body: Data
 
@@ -22,14 +23,16 @@ final class CoordinatorHandler: ChannelInboundHandler {
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
 
-    private static let maximum = 2048
+    private var maximum = 0
+    private let teams: ReferenceTeams?
     private let accounts: AccountStore?
     private let pool: NIOThreadPool
     private var head: HTTPRequestHead?
     private var body = Data()
     private var responding = false
 
-    init(accounts: AccountStore?, pool: NIOThreadPool) {
+    init(accounts: AccountStore?, pool: NIOThreadPool, teams: ReferenceTeams?) {
+        self.teams = teams
         self.accounts = accounts
         self.pool = pool
     }
@@ -40,14 +43,17 @@ final class CoordinatorHandler: ChannelInboundHandler {
         switch unwrapInboundIn(data) {
         case .head(let request):
             head = request
-            if request.method == .POST, request.uri == "/v1/client/pair", accounts != nil,
-               let error = Self.checkHeaders(request.headers) {
+            if request.method == .POST && accounts != nil {
+                if request.uri == "/v1/client/pair" { maximum = 2048 }
+                if teams != nil && ReferenceRoute.matches(request.uri) { maximum = 16384 }
+            }
+            if maximum == 2048, let error = Self.checkHeaders(request.headers, maximum: maximum) {
                 responding = true
                 Self.send(error, on: channel)
             }
         case .body(let chunk):
-            if head?.method == .POST, head?.uri == "/v1/client/pair", accounts != nil {
-                guard chunk.readableBytes <= Self.maximum - body.count else {
+            if maximum > 0 {
+                guard chunk.readableBytes <= maximum - body.count else {
                     responding = true
                     Self.send(Reply(.badRequest, error: "invalid_length"), on: channel)
                     return
@@ -59,6 +65,24 @@ final class CoordinatorHandler: ChannelInboundHandler {
             responding = true
             if head.method == .GET, head.uri == "/v1/status" {
                 Self.send(Reply(.ok, Data(#"{"service":"tachi","protocolVersion":1,"status":"ready"}"#.utf8)), on: channel)
+                return
+            }
+            if let teams, let accounts, ReferenceRoute.matches(head.uri) {
+                let payload = body
+                let headerError = head.method == .POST ? Self.checkHeaders(head.headers, maximum: 16384) : nil
+                let principal = pool.runIfActive(eventLoop: channel.eventLoop) {
+                    try Self.authenticate(head, store: accounts)
+                }
+                Task {
+                    let response: Reply
+                    do {
+                        let client = try await principal.get()
+                        response = try await ReferenceRoute.reply(head, body: payload, headerError: headerError,
+                                                                  client: client, service: teams)
+                    } catch AccountsError.denied { response = Reply(.unauthorized, error: "unauthorized") }
+                    catch { response = Reply(.internalServerError, error: "storage_error") }
+                    channel.eventLoop.execute { Self.send(response, on: channel) }
+                }
                 return
             }
             guard (head.method == .POST && head.uri == "/v1/client/pair")
@@ -79,15 +103,23 @@ final class CoordinatorHandler: ChannelInboundHandler {
         }
     }
 
-    private static func checkHeaders(_ headers: HTTPHeaders) -> Reply? {
+    private static func checkHeaders(_ headers: HTTPHeaders, maximum: Int) -> Reply? {
         let media = headers["Content-Type"].first?.components(separatedBy: ";").first?
             .trimmingCharacters(in: .whitespaces).lowercased()
         guard media == "application/json" else { return Reply(.unsupportedMediaType, error: "expected_json") }
         let lengths = headers["Content-Length"]
         guard lengths.count == 1, headers["Transfer-Encoding"].isEmpty,
-              lengths[0].utf8.count <= 4, lengths[0].utf8.allSatisfy({ (48...57).contains($0) }),
+              lengths[0].utf8.count <= String(maximum).utf8.count, lengths[0].utf8.allSatisfy({ (48...57).contains($0) }),
               let length = Int(lengths[0]), length <= maximum else { return Reply(.badRequest, error: "invalid_length") }
         return nil
+    }
+
+    private static func authenticate(_ head: HTTPRequestHead, store: AccountStore) throws -> ClientPrincipal {
+        let headers = head.headers["Authorization"]
+        guard headers.count == 1 else { throw AccountsError.denied }
+        let parts = headers[0].split(whereSeparator: { $0.isWhitespace })
+        guard parts.count == 2, parts[0].lowercased() == "bearer" else { throw AccountsError.denied }
+        return try store.authenticate(token: String(parts[1]))
     }
 
     private static func accountReply(_ head: HTTPRequestHead, body: Data, store: AccountStore) throws -> Reply {
@@ -100,11 +132,7 @@ final class CoordinatorHandler: ChannelInboundHandler {
                 let client = try store.redeemClient(invitation: invitation)
                 return try Reply(.created, JSONEncoder().encode(["clientID": client.clientID, "token": client.token]))
             }
-            let headers = head.headers["Authorization"]
-            guard headers.count == 1 else { throw AccountsError.denied }
-            let parts = headers[0].split(whereSeparator: { $0.isWhitespace })
-            guard parts.count == 2, parts[0].lowercased() == "bearer" else { throw AccountsError.denied }
-            let principal = try store.authenticate(token: String(parts[1]))
+            let principal = try authenticate(head, store: store)
             struct Identity: Encodable {
                 let humanID, clientID: String
                 let scopes: [String]

@@ -13,7 +13,7 @@ docker build -t tachi-service .
 docker run --rm -p 127.0.0.1:8743:8743 tachi-service
 ```
 
-The image runs the release executable as an unprivileged user on Ubuntu 24.04. Linux CI packages the same executable as a downloadable amd64 archive. The Swift service serves status and client pairing. Team delivery and provider dispatch are being ported under [#55](https://github.com/Section9Labs/tachi/issues/55).
+The image runs the release executable as an unprivileged user on Ubuntu 24.04. Linux CI packages the same executable as a downloadable amd64 archive. The Swift service serves status and client pairing. Pass `--db /path/to/coordinator.sqlite --reference-teams` to enable authenticated synthetic teams. Their worker can finish queued tasks while clients are offline and resumes eligible work when restarted. This mode uses reference assistants that count words. Native provider dispatch is being ported under [#55](https://github.com/Section9Labs/tachi/issues/55).
 
 ## Run the compatibility reference
 

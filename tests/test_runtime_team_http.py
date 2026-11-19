@@ -34,8 +34,10 @@ class ReferenceTeamHTTPTests(unittest.TestCase):
         self.sibling = self.pair("operator-a")
         self.other = self.pair("operator-b")
 
-    def start(self, enabled=True):
-        args = [sys.executable, "-m", "tachi", "--db", str(self.path), "--port", "0"]
+    def start(self, enabled=True, *, legacy=False):
+        binary = None if legacy else os.environ.get("TACHI_TEST_COORDINATOR")
+        self.swift_process = bool(binary)
+        args = ([binary] if binary else [sys.executable, "-m", "tachi"]) + ["--db", str(self.path), "--port", "0"]
         if enabled:
             args.append("--reference-teams")
         self.proc = subprocess.Popen(args, stdout=subprocess.PIPE, text=True,
@@ -48,8 +50,10 @@ class ReferenceTeamHTTPTests(unittest.TestCase):
     def stop(self):
         if self.proc:
             self.proc.terminate()
-            self.proc.wait(timeout=5)
+            status = self.proc.wait(timeout=5)
             self.proc.stdout.close()
+            if self.swift_process:
+                self.assertEqual(status, 0, "Swift service must shut down cleanly on SIGTERM")
             self.proc = None
 
     def request(self, method, path, token=None, payload=None, status=200):
@@ -145,6 +149,9 @@ class ReferenceTeamHTTPTests(unittest.TestCase):
         self.request("GET", ROOT, status=401)
         self.request("POST", ROOT, self.owner["token"],
                      {"creationID": "bad", "turnLimit": 1, "accountID": "external"}, 400)
+        for invalid in (True, 1.5, "2", 0, 1001):
+            self.request("POST", ROOT, self.owner["token"], {"creationID": "bad", "turnLimit": invalid}, 400)
+
         self.request("POST", path + "/messages", self.owner["token"],
                      {"messageID": "bad", "text": "check", "audience": "room", "_tachi_host_scope": {}}, 400)
         another = self.create(who=self.other)
@@ -169,6 +176,42 @@ class ReferenceTeamHTTPTests(unittest.TestCase):
             external, = queue.history("another-runtime-team", principal, "run")
             self.assertEqual(external["deliveries"][0]["state"], "queued")
             self.assertEqual(queue.run_status("another-runtime-team", principal, "run")["turns"], 0)
+
+    @unittest.skipUnless(os.environ.get("TACHI_TEST_COORDINATOR"), "requires a Swift coordinator binary")
+    def test_legacy_reference_team_http_cutover_and_readback(self):
+        self.stop()
+        self.path = self.path.with_name("legacy.sqlite")
+        self.accounts = AccountStore(self.path)
+        self.start(legacy=True)
+        origin = self.pair("editor")
+        sibling = self.pair("editor")
+        token = sibling["token"]
+        team = self.create(who=sibling)
+        path = ROOT + "/" + team["teamID"]
+        self.request("POST", path + "/run", token, {"state": "paused"})
+        revoked = {"messageID": "withdrawn", "audience": "lead", "text": "old client"}
+        pending = {"messageID": "draft", "audience": "lead", "text": "two words"}
+        self.request("POST", path + "/messages", origin["token"], revoked)
+        self.request("POST", path + "/messages", token, pending)
+        self.stop()
+        self.start()
+        self.assertEqual(self.create(who=sibling)["teamID"], team["teamID"])
+        self.assertEqual(self.request("GET", path, token)["runState"], "paused")
+        self.request("POST", path + "/messages", token, pending)
+        self.accounts.revoke_client("editor", origin["clientID"])
+        self.request("POST", path + "/run", token, {"state": "running"})
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            rows = self.messages(path, sibling)
+            if [r["deliveries"][0]["state"] for r in rows] == ["denied", "completed"]:
+                break
+            time.sleep(0.05)
+        else:
+            self.fail("queued legacy messages did not reach their expected states")
+        self.assertEqual(rows[1]["deliveries"][0]["result"], "Reference lead counted 2 words.")
+        self.stop()
+        self.start(legacy=True)
+        self.assertEqual(self.messages(path, sibling), rows)
 
     def test_competing_creation_resumes_same_team_and_disabled_mode_hides_routes(self):
         with ThreadPoolExecutor(max_workers=2) as pool:
