@@ -6,7 +6,8 @@ let package = Package(
     platforms: [.macOS(.v13), .iOS(.v16)],
     products: [.library(name: "TachiRuntime", targets: ["TachiRuntime"])],
     targets: [
-        .target(name: "TachiRuntime"),
-        .testTarget(name: "TachiRuntimeTests", dependencies: ["TachiRuntime"])
+        .systemLibrary(name: "RuntimeSQLite", pkgConfig: "sqlite3", providers: [.apt(["libsqlite3-dev"])]),
+        .target(name: "TachiRuntime", dependencies: ["RuntimeSQLite"]),
+        .testTarget(name: "TachiRuntimeTests", dependencies: ["TachiRuntime", "RuntimeSQLite"], resources: [.copy("Fixtures")])
     ]
 )
