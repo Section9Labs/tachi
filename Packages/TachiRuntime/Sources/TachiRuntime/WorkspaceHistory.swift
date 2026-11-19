@@ -2,8 +2,8 @@ import Foundation
 
 /// A human transcript has no assistant binding, run, or adapter delivery.
 public actor WorkspaceHistory {
-    private let db: RuntimeDatabase
-    private let authority: any QueueAuthority
+    let db: RuntimeDatabase
+    let authority: any QueueAuthority
 
     public init(path: String, authority: any QueueAuthority) throws {
         self.authority = authority
@@ -16,6 +16,7 @@ public actor WorkspaceHistory {
                 CHECK ((recipient IS NULL) = (recipient_membership IS NULL))
             )
             """)
+        try db.query(Self.artifactSchema)
     }
 
     public func post(team: String, principal: QueuePrincipal, id: String, text: String, recipient: String?) throws {
