@@ -9,6 +9,7 @@ import sqlite3
 import time
 import uuid
 from threading import Event, Lock, Thread
+from urllib.parse import urlsplit
 
 from http_lab import CoordinatorLab
 
@@ -92,7 +93,9 @@ class SoloHTTPCheck(RoutineLab):
                 other = self.pair("synthetic-neighbor", "other", *both)
                 self.request("GET", self.routines, 401, token="synthetic-invalid")
                 catalogue = self.request("GET", self.routines, 200, token=owner)
-                self.assertTrue(catalogue == {"routines": [{"routine_id": routine, "provider": "grok-bot"}]},
+                origin = {"scheme": "http", "host": "127.0.0.1", "port": urlsplit(url).port}
+                summary = {"routine_id": routine, "provider": "grok-bot", "origin": origin}
+                self.assertTrue(catalogue == {"routines": [summary]},
                                 "unexpected owner routine catalogue")
                 self.assertTrue(self.request("GET", self.routines, 200, token=other) == {"routines": []},
                                 "foreign client discovered a routine")

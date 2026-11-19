@@ -48,7 +48,26 @@ private func digest(_ text: String) -> String {
     return Data(hash).base64EncodedString()
 }
 
+struct SoloRoutineSummary: Encodable, Equatable, Sendable {
+    struct Origin: Encodable, Equatable, Sendable {
+        let scheme: String
+        let host: String
+        let port: Int
+
+        init(_ grant: WebhookGrant) {
+            scheme = grant.scheme
+            host = grant.host
+            port = grant.port
+        }
+    }
+
+    let routine_id: String
+    let provider: String
+    let origin: Origin
+}
+
 private struct Routine: Sendable {
+    let origin: SoloRoutineSummary.Origin
     let human: String
     let alias: String
     let lane: SoloLane
@@ -69,6 +88,7 @@ private struct Routine: Sendable {
         }
         human = entry.human_id
         alias = entry.routine_id
+        origin = .init(grant)
         lane = try SoloLane(key: digest(human + "\0" + alias))
         // Scope pending work to this exact operator grant, including credential rotation.
         generation = digest(grant.destination() + "\0" + grant.secret)
@@ -88,6 +108,7 @@ private struct Routine: Sendable {
         }
         human = humanID
         alias = routineID
+        origin = .init(grant)
         lane = try SoloLane(key: digest(human + "\0" + alias))
         generation = digest(grant.destination() + "\0" + grant.secret)
         adapter = try GrokBotAdapter(identity: lane.identity, grant: grant, allowLoopback: fixture)
@@ -157,9 +178,9 @@ struct SoloRoutines: Sendable {
         return WorkspaceRoutineGrant(identity: routine.adapter.identity, generation: routine.generation)
     }
 
-    func list(_ principal: QueuePrincipal) -> [[String: String]] {
+    func list(_ principal: QueuePrincipal) -> [SoloRoutineSummary] {
         routines.filter { $0.human.utf8.elementsEqual(principal.humanID.utf8) }
-            .map { ["routine_id": $0.alias, "provider": grokBotProviderID] }
+            .map { SoloRoutineSummary(routine_id: $0.alias, provider: grokBotProviderID, origin: $0.origin) }
     }
 
     func task(_ principal: QueuePrincipal, routineID: String, taskID: String, payload: JSONObject?) async throws -> JSONObject {
